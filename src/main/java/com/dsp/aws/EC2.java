@@ -31,13 +31,14 @@ public class EC2 {
         // snippet-start:[ec2.java2.create_instance.main]
         Ec2Client ec2 = Ec2Client.create();
 
-        RunInstancesRequest runRequest = null;/*RunInstancesRequest.builder()
+        RunInstancesRequest runRequest = RunInstancesRequest.builder()
                 .instanceType(InstanceType.T1_MICRO)
                 .imageId(amiId)
                 .maxCount(1)
                 .minCount(1)
-                .userData(Base64.getEncoder().encodeToString(*//*your USER DATA script string*//*.getBytes()))
-                .build();*/
+                .userData(Base64.getEncoder().encodeToString("TODO: user data".getBytes()))
+                .build();
+
         RunInstancesResponse response = ec2.runInstances(runRequest);
 
         String instanceId = response.instances().get(0).instanceId();
