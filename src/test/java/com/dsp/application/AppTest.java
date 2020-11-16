@@ -1,4 +1,4 @@
-package com.dsp;
+package com.dsp.application;
 
 import static org.junit.Assert.assertTrue;
 

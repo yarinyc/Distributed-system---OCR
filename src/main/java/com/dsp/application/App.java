@@ -1,4 +1,4 @@
-package com.dsp;
+package com.dsp.application;
 
 /**
  * Hello world!
