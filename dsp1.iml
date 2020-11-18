@@ -17,7 +17,6 @@
     <orderEntry type="library" name="Maven: software.amazon.awssdk:protocol-core:2.5.10" level="project" />
     <orderEntry type="library" name="Maven: software.amazon.awssdk:sdk-core:2.5.10" level="project" />
     <orderEntry type="library" name="Maven: software.amazon.awssdk:profiles:2.5.10" level="project" />
-    <orderEntry type="library" name="Maven: org.slf4j:slf4j-api:1.7.25" level="project" />
     <orderEntry type="library" name="Maven: com.fasterxml.jackson.core:jackson-core:2.9.8" level="project" />
     <orderEntry type="library" name="Maven: com.fasterxml.jackson.core:jackson-databind:2.9.8" level="project" />
     <orderEntry type="library" name="Maven: org.reactivestreams:reactive-streams:1.0.2" level="project" />
@@ -50,5 +49,8 @@
     <orderEntry type="library" name="Maven: software.amazon.awssdk:s3:2.5.10" level="project" />
     <orderEntry type="library" name="Maven: software.amazon.awssdk:aws-xml-protocol:2.5.10" level="project" />
     <orderEntry type="library" name="Maven: software.amazon.awssdk:sqs:2.5.10" level="project" />
+    <orderEntry type="library" name="Maven: org.slf4j:slf4j-log4j12:1.7.25" level="project" />
+    <orderEntry type="library" name="Maven: org.slf4j:slf4j-api:1.7.25" level="project" />
+    <orderEntry type="library" name="Maven: log4j:log4j:1.2.17" level="project" />
   </component>
 </module>
