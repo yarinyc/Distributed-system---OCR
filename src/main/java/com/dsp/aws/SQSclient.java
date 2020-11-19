@@ -22,7 +22,10 @@ public class SQSclient {
     }
 
     public boolean createQueue(String queueName, String visibility) {
+//        Map<QueueAttributeName, String> queueAttributes = new HashMap<>();
+//        queueAttributes.put(QueueAttributeName.FIFO_QUEUE, Boolean.TRUE.toString());
         CreateQueueRequest createQueueRequest = CreateQueueRequest.builder()
+//                                                .attributes(queueAttributes)
                                                 .queueName(queueName)
                                                 .build();
         try {
@@ -56,19 +59,17 @@ public class SQSclient {
                                             .messageAttributeNames("All")
                                             .maxNumberOfMessages(maxNumberOfMessages)
                                             .build();
-        List<Message> messages = sqs.receiveMessage(receiveRequest).messages();
 
-        return messages;
+        return sqs.receiveMessage(receiveRequest).messages();
     }
 
 
-    public boolean sendMessage(String queueUrl, String messageBody, HashMap<String, MessageAttributeValue> attributes, String groupId) {
+    public boolean sendMessage(String queueUrl, String messageBody, HashMap<String, MessageAttributeValue> attributes) {
         SendMessageRequest send_msg_request = SendMessageRequest.builder()
                 .queueUrl(queueUrl)
                 .messageBody(messageBody)
                 .messageAttributes(attributes)
                 .delaySeconds(5)
-                .messageGroupId(groupId) // TODO check if this works
                 .build();
         try {
             sqs.sendMessage(send_msg_request);
