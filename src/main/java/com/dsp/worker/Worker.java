@@ -1,6 +1,6 @@
-package com.dsp.application;
+package com.dsp.worker;
 
-public class Manager {
+public class Worker {
 
     public static void main(String[] args) {
 

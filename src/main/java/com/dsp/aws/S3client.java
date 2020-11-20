@@ -8,6 +8,8 @@ import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.List;
+import java.util.stream.Collectors;
 
 public class S3client {
 
@@ -64,6 +66,15 @@ public class S3client {
             return false;
         }
         return true;
+    }
+
+    public List<String> getAllBucketNames(){
+        ListBucketsResponse listBucketsResponse = s3.listBuckets();
+        return listBucketsResponse
+                .buckets()
+                .stream()
+                .map(x-> x.name())
+                .collect(Collectors.toList());
     }
 }
 

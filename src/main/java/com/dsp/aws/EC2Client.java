@@ -65,10 +65,10 @@ public class EC2Client {
     }
 
     // tag an EC2 instance.
-    public boolean createTag(String tagName, String instanceName, String instanceId) {
+    public boolean createTag(String tagName, String tagValue, String instanceId) {
         Tag tag = Tag.builder()
                 .key(tagName)
-                .value(instanceName)
+                .value(tagValue)
                 .build();
 
         CreateTagsRequest tagRequest = CreateTagsRequest.builder()
