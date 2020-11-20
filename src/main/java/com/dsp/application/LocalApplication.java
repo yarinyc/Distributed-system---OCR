@@ -12,16 +12,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-
 //ec2 role: ec2roledsp1
 //yarin - aws arn: arn:aws:iam::322970830450:instance-profile/ec2_role_full_access
-
 // omer - aws arn: arn:aws:iam::290318388667:instance-profile/ec2_role_full_access
 
-public class LocalApplication
-{
+public class LocalApplication {
     public static final String VISIBILITY = "10";
-    private static boolean isManagerRunning = false;
     private static boolean isManagerDone = false;
     private static boolean shouldTerminate = false;
     private static EC2Client ec2;
@@ -30,7 +26,6 @@ public class LocalApplication
     private static LocalAppConfiguration config;
     private static String s3BucketName = null;
     private static String localToManagerQueueUrl = null;
-    private static String managerToLocalQueueUrl = null;
     private static String responseKey = null;
 
     public static void main( String[] args){
@@ -43,7 +38,7 @@ public class LocalApplication
         //cli args
         String inputFileName = args[0];
         String outputFileName = args[1];
-        String n = args[2];
+        int n = Integer.parseInt(args[2]);
         if(args.length == 4 && args[3].equals("terminate")) {
             shouldTerminate = true;
         }
@@ -53,10 +48,10 @@ public class LocalApplication
         s3 = new S3client();
         sqs = new SQSclient();
 
-        //init config object
+        //init configuration object
         config = new LocalAppConfiguration();
 
-        //check if manager node is up, if not we start it and set isManagerRunning field to be true
+        //check if manager node is up, if not we will start it and all relevant aws services
         initManager();
 
         //upload input file to s3 + send message to manager
@@ -95,9 +90,7 @@ public class LocalApplication
                 //System.exit(1);
             }
         }
-
-        System.out.println("done");
-
+        System.out.println("exiting");
     }
 
     private static void sendTask(String inputFileName, String s3InputFileKey) {
@@ -128,24 +121,6 @@ public class LocalApplication
         //TODO
 
         return false;
-    }
-
-    private static void initSqs(String localToManagerQueueName) {
-        try {
-            localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
-        } catch(Exception e){
-            if(!sqs.createQueue(localToManagerQueueName, VISIBILITY)){
-                System.out.println("Error at creating localToManagerQueue");
-                System.exit(1);
-            }
-            try{
-                TimeUnit.SECONDS.sleep(2);
-            } catch(Exception ex){
-                e.printStackTrace();
-                System.exit(1);
-            }
-            localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
-        }
     }
 
     //check if manager node is up, if not we will start it and all aws services required
@@ -187,6 +162,24 @@ public class LocalApplication
         initSqs(config.getManagerToLocalQueueName());
     }
 
+    private static void initSqs(String localToManagerQueueName) {
+        try {
+            localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
+        } catch(Exception e){
+            if(!sqs.createQueue(localToManagerQueueName, VISIBILITY)){
+                System.out.println("Error at creating localToManagerQueue");
+                System.exit(1);
+            }
+            try{
+                TimeUnit.SECONDS.sleep(2);
+            } catch(Exception ex){
+                e.printStackTrace();
+                System.exit(1);
+            }
+            localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
+        }
+    }
+
     private static String createManagerScript() {
         String userData = "";
         userData = userData + "#!/bin/bash\n";
@@ -200,7 +193,5 @@ public class LocalApplication
         InstanceType instanceType = InstanceType.T2_MICRO;
         List<Instance> instances = ec2Client.createEC2Instances(amiId, "ec2key_dsp1", 1, 1, createManagerScript(), arn, instanceType);
     }
-
-//
 
 }
