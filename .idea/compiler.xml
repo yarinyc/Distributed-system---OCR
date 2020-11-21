@@ -7,18 +7,14 @@
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
         <module name="parent" />
-        <module name="dsp1 (1)" />
         <module name="localApplication" />
         <module name="manager" />
-        <module name="dsp1 (3)" />
         <module name="worker" />
-        <module name="dsp1 (2)" />
       </profile>
       <profile name="Annotation profile for dsp1" enabled="true">
         <sourceOutputDir name="../manager/target/generated-sources/annotations" />
         <sourceTestOutputDir name="../manager/target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="dsp1 (4)" />
       </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>

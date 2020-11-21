@@ -40,6 +40,9 @@
           </execution>
         </executions>
         <configuration>
+          <finalName>Worker</finalName>
+          <appendAssemblyId>false</appendAssemblyId>
+          <outputDirectory>../jars</outputDirectory>
           <archive>
             <manifest>
               <addClasspath>true</addClasspath>
