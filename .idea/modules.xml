@@ -3,6 +3,14 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/dsp1.iml" filepath="$PROJECT_DIR$/dsp1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/manager/dsp1 (1).iml" filepath="$PROJECT_DIR$/manager/dsp1 (1).iml" />
+      <module fileurl="file://$PROJECT_DIR$/worker/dsp1 (2).iml" filepath="$PROJECT_DIR$/worker/dsp1 (2).iml" />
+      <module fileurl="file://$PROJECT_DIR$/Parent/dsp1 (3).iml" filepath="$PROJECT_DIR$/Parent/dsp1 (3).iml" />
+      <module fileurl="file://$PROJECT_DIR$/worker/dsp1 (4).iml" filepath="$PROJECT_DIR$/worker/dsp1 (4).iml" />
+      <module fileurl="file://$PROJECT_DIR$/localApplication/localApplication.iml" filepath="$PROJECT_DIR$/localApplication/localApplication.iml" />
+      <module fileurl="file://$PROJECT_DIR$/manager/manager.iml" filepath="$PROJECT_DIR$/manager/manager.iml" />
+      <module fileurl="file://$PROJECT_DIR$/Parent/parent.iml" filepath="$PROJECT_DIR$/Parent/parent.iml" />
+      <module fileurl="file://$PROJECT_DIR$/worker/worker.iml" filepath="$PROJECT_DIR$/worker/worker.iml" />
     </modules>
   </component>
 </project>

@@ -30,6 +30,9 @@ public class LocalApplication {
 
     public static void main( String[] args){
 
+        System.out.println("started app "+GeneralUtils.getUniqueID());
+        System.exit(0);
+
         if(args.length < 3) {
             System.out.println("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
             System.exit(1);
