@@ -5,7 +5,6 @@ import com.dsp.aws.S3client;
 import com.dsp.aws.SQSclient;
 import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.services.ec2.model.*;
-import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
 import java.util.HashMap;
@@ -17,7 +16,6 @@ import java.util.concurrent.TimeUnit;
 // omer - aws arn: arn:aws:iam::290318388667:instance-profile/ec2_role_full_access
 
 public class LocalApplication {
-    public static final String VISIBILITY = "10";
     private static boolean isManagerDone = false;
     private static boolean shouldTerminate = false;
     private static EC2Client ec2;
@@ -26,12 +24,12 @@ public class LocalApplication {
     private static LocalAppConfiguration config;
     private static String s3BucketName = null;
     private static String localToManagerQueueUrl = null;
+    private static String managerToLocalQueueUrl = null;
     private static String responseKey = null;
 
-    public static void main( String[] args){
+    public static void main(String[] args){
 
-        System.out.println("started app "+GeneralUtils.getUniqueID());
-        System.exit(0);
+        System.out.println("started LocalApplication");
 
         if(args.length < 3) {
             System.out.println("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
@@ -161,26 +159,8 @@ public class LocalApplication {
             s3.createBucket(s3BucketName);
         }
         //init for all sqs queues
-        initSqs(config.getLocalToManagerQueueName());
-        initSqs(config.getManagerToLocalQueueName());
-    }
-
-    private static void initSqs(String localToManagerQueueName) {
-        try {
-            localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
-        } catch(Exception e){
-            if(!sqs.createQueue(localToManagerQueueName, VISIBILITY)){
-                System.out.println("Error at creating localToManagerQueue");
-                System.exit(1);
-            }
-            try{
-                TimeUnit.SECONDS.sleep(2);
-            } catch(Exception ex){
-                e.printStackTrace();
-                System.exit(1);
-            }
-            localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
-        }
+        localToManagerQueueUrl = GeneralUtils.initSqs(config.getLocalToManagerQueueName(), sqs);
+        managerToLocalQueueUrl = GeneralUtils.initSqs(config.getManagerToLocalQueueName(), sqs);
     }
 
     private static String createManagerScript() {

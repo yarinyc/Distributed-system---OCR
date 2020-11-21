@@ -64,6 +64,29 @@ public class EC2Client {
         return instances;
     }
 
+    public int getNumberOfInstances(Filter filter) {
+        String nextToken = null;
+        int count = 0;
+        try {
+            do {
+                DescribeInstancesRequest request = DescribeInstancesRequest
+                        .builder()
+                        .filters(filter)
+                        .nextToken(nextToken)
+                        .build();
+                DescribeInstancesResponse response = ec2client.describeInstances(request);
+                // find all instances in current response
+                for (Reservation reservation : response.reservations()) {
+                    count += reservation.instances().size();
+                }
+                nextToken = response.nextToken();
+            } while (nextToken != null);
+        } catch (Ec2Exception e) {
+            e.printStackTrace();
+        }
+        return count;
+    }
+
     // tag an EC2 instance.
     public boolean createTag(String tagName, String tagValue, String instanceId) {
         Tag tag = Tag.builder()

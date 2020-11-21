@@ -27,6 +27,18 @@
   <build>
     <plugins>
       <!-- any other plugins -->
+
+<!--      <plugin>-->
+<!--        <artifactId>maven-jar-plugin</artifactId>-->
+<!--        <version>3.0.2</version>-->
+<!--        <executions>-->
+<!--          <execution>-->
+<!--            <id>default-jar</id>-->
+<!--            <phase>none</phase>-->
+<!--          </execution>-->
+<!--        </executions>-->
+<!--      </plugin>-->
+
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-assembly-plugin</artifactId>
