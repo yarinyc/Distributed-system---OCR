@@ -39,11 +39,15 @@ public class Manager {
     private static String ami;
     private static String s3BucketName;
     private static String keyName;
+    //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
+    //each localApp has it's own hashmap (Inner hashmap) of task results
     private static Map<String, Map<String, String>> tasksResults;
+    private static Map<String, Integer> completedTasks;
 
     public static void main(String[] args) {
         System.out.println("started manager process");
 
+        //get data from args
         int n = Integer.parseInt(args[0]);
         String localToManagerQueueName = args[1];
         String managerToLocalQueueName = args[2];
@@ -79,11 +83,42 @@ public class Manager {
 
         while (shouldContinue.get()){
             //poll queue for results
+            List<Message> messages = sqs.getMessages(workersToManagerQueueUrl, 5);
+            for(Message m : messages){
+                //get all needed information and the result
+                Map<String, MessageAttributeValue> attributes = m.messageAttributes();
+                String localAppID = attributes.get("LocalAppID").stringValue();
+                String url = attributes.get("Url").stringValue();
+                String result = m.body();
+                //add result to hashmap + update counter of completed tasks of localAppID
+                Integer new_count = completedTasks.get(localAppID) + 1;
+                completedTasks.put(localAppID,new_count);
+                tasksResults.get(localAppID).put(url, result);
+                //check if now all subtasks of localAppID are done
+                if(new_count == tasksResults.size()){
+                    //TODO: do this part with another thread
+                    //reset counter
+                    completedTasks.put(localAppID,0);
+                    createSendSummaryFile(localAppID);
+                }
+                //delete message from queue
+                if(!sqs.deleteMessages(messages, workersToManagerQueueUrl)){
+                    System.out.println("Error at deleting task message from workersToManagerQueue");
+                    System.exit(1); // Fatal Error
+                }
+            }
+
+
         }
 
         //terminate seq kill all ec2 and sqs
 
 
+    }
+
+    //Create summary file of all url subtasks results and send to the local application
+    private static void createSendSummaryFile(String localAppID) {
+        //TODO:
     }
 
     private static void handleMessage(int n, AtomicBoolean shouldContinue, ExecutorService executor, List<Message> messages) {
@@ -99,12 +134,13 @@ public class Manager {
                 }
             }
             else{
+                //break up task to subtasks and send to workers
                 distributeTasks(n, messages, body);
             }
         }
     }
 
-    //TODO heavy task, check if VISIBILTY is enough
+    //TODO heavy task, check if VISIBILITY is enough
     private static void distributeTasks(int n, List<Message> messages, String body) {
         String inputFilePath = body +"_input.txt";
         if(!s3.getObject(s3BucketName, body, inputFilePath)) { // body is the key in s3
@@ -115,16 +151,21 @@ public class Manager {
         synchronized (sizeOfCurrentInput){
             sizeOfCurrentInput+=urlList.size();
         }
+        //check there is a sufficient number of workers
         loadBalance(n);
+        //send url tasks to workers
         sendTasks(body, urlList);
+        //delete task message from queue (we just sent all subtaks to the workers)
         if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
             System.out.println("Error at deleting task message from localToManagerQueue");
             System.exit(1); // Fatal Error
         }
     }
 
+    //sends url tasks to workers
     private static void sendTasks(String LocalAppID, List<String> urlList) {
         Map<String, String> subTasksResult = new HashMap<>();
+        completedTasks.put(LocalAppID,0); //so far there are 0 completed subtasks(urls) of localAppID
         for (String url: urlList) {
             subTasksResult.put(url, "");
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
@@ -136,7 +177,7 @@ public class Manager {
                 System.exit(1); // Fatal Error
             }
         }
-        tasksResults.put(LocalAppID, subTasksResult);
+        tasksResults.put(LocalAppID, subTasksResult); // we add a new results hashmap of LocalAppID
     }
 
     // checks if there are enough workers running, if not creates them.
@@ -156,6 +197,7 @@ public class Manager {
         }
     }
 
+    //auxiliary function for reading input files
     private static List<String> parseInputFile(String inputFilePath) {
         try {
             return Files.readAllLines(Paths.get(inputFilePath), StandardCharsets.UTF_8);
