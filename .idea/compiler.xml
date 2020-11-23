@@ -11,11 +11,6 @@
         <module name="manager" />
         <module name="worker" />
       </profile>
-      <profile name="Annotation profile for dsp1" enabled="true">
-        <sourceOutputDir name="../manager/target/generated-sources/annotations" />
-        <sourceTestOutputDir name="../manager/target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-      </profile>
     </annotationProcessing>
     <bytecodeTargetLevel>
       <module name="dsp1" target="1.8" />

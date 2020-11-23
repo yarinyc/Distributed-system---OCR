@@ -24,6 +24,7 @@ public class Worker {
     private static EC2Client ec2;
     private static S3client s3;
     private static SQSclient sqs;
+    private static Tesseract tesseract;
 
     public static void main(String[] args) {
 
@@ -40,7 +41,7 @@ public class Worker {
         sqs = new SQSclient();
 
         //create OCR engine
-        Tesseract tesseract = new Tesseract();
+        tesseract = new Tesseract();
 
         while(!shouldTerminate){
             List<Message> messages = sqs.getMessages(managerToWorkersQueueUrl, 5);
