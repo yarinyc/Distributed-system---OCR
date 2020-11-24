@@ -48,6 +48,7 @@ public class Worker {
             for(Message m : messages){
                 if(m.body().equals("terminate")){
                     shouldTerminate = true;
+                    break;
                 }
                 else{
                     handleOcrTask(m,managerToWorkersQueueUrl);

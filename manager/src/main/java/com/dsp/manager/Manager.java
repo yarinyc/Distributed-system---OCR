@@ -13,10 +13,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,9 +69,12 @@ public class Manager {
         AtomicBoolean shouldContinue = new AtomicBoolean(true);
         numOfActiveWorkers = 0;
         sizeOfCurrentInput = 0;
+        completedTasks = new HashMap<>();
+        tasksResults = new HashMap<>();
+
 
         ExecutorService executor = Executors.newFixedThreadPool(5);
-        executor.execute(() -> {
+        executor.execute(() -> { //TODO check if execute is for all threads
             while (!Thread.interrupted()) {
                 List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
                 handleMessage(n, shouldContinue, executor, messages);
@@ -87,7 +87,7 @@ public class Manager {
             for(Message m : messages){
                 //get all needed information and the result
                 Map<String, MessageAttributeValue> attributes = m.messageAttributes();
-                String localAppID = attributes.get("LocalAppID").stringValue();
+                String localAppID = attributes.get("LocalAppID").stringValue(); //TODO null check
                 String url = attributes.get("Url").stringValue();
                 String result = m.body();
                 //add result to hashmap + update counter of completed tasks of localAppID
@@ -95,14 +95,17 @@ public class Manager {
                 completedTasks.put(localAppID,new_count);
                 tasksResults.get(localAppID).put(url, result);
                 //check if now all subtasks of localAppID are done
-                if(new_count == tasksResults.size()){
+                if(new_count == tasksResults.get(localAppID).size()){
                     //TODO: do this part with another thread
                     //reset counter
-                    completedTasks.put(localAppID,0);
+                    completedTasks.remove(localAppID);
+//                    completedTasks.put(localAppID,0); //delete this
                     createSendSummaryFile(localAppID);
                 }
                 //delete message from queue
-                if(!sqs.deleteMessages(messages, workersToManagerQueueUrl)){
+                List<Message> msgToDelete = new ArrayList<>();
+                msgToDelete.add(m);
+                if(!sqs.deleteMessages(msgToDelete, workersToManagerQueueUrl)){
                     System.out.println("Error at deleting task message from workersToManagerQueue");
                     System.exit(1); // Fatal Error
                 }
