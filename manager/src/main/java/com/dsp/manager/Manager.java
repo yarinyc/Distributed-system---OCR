@@ -4,42 +4,52 @@ import com.dsp.aws.EC2Client;
 import com.dsp.aws.S3client;
 import com.dsp.aws.SQSclient;
 import com.dsp.utils.GeneralUtils;
+import software.amazon.awssdk.core.util.json.JacksonUtils;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class Manager {
 
     public static final String MANAGER_TO_WORKERS_QUEUE_NAME = "managerToWorkersQueue_"+ GeneralUtils.getUniqueID();
     public static final String WORKERS_TO_MANAGER_QUEUE_NAME = "workersToManagerQueue_"+ GeneralUtils.getUniqueID();
     public static final Integer MAX_INSTANCES = 18; // max instances of student aws account is 19
+    private static final int NUM_OF_THREADS = 8;
+
     private static EC2Client ec2;
     private static S3client s3;
     private static SQSclient sqs;
+
     private static String localToManagerQueueUrl;
-    private static String managerToLocalQueueUrl;
     private static String managerToWorkersQueueUrl;
     private static String workersToManagerQueueUrl;
+
+    //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
+    //each localApp has it's own hashmap (Inner hashmap) of task results
+    private static Map<String, Map<String, String>> tasksResults;
+    private static Map<String, Integer> completedTasks;
+    private static Map<String, String> managerToLocalQueues;
+
     private static Integer numOfActiveWorkers;
     private static Integer sizeOfCurrentInput;
     private static String arn;
     private static String ami;
     private static String s3BucketName;
     private static String keyName;
-    //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
-    //each localApp has it's own hashmap (Inner hashmap) of task results
-    private static Map<String, Map<String, String>> tasksResults;
-    private static Map<String, Integer> completedTasks;
 
     public static void main(String[] args) {
         System.out.println("started manager process");
@@ -47,15 +57,13 @@ public class Manager {
         //get data from args
         int n = Integer.parseInt(args[0]);
         String localToManagerQueueName = args[1];
-        String managerToLocalQueueName = args[2];
-        s3BucketName = args[3];
-        ami = args[4];
-        arn = args[5];
-        keyName = args[6];
+        s3BucketName = args[2];
+        ami = args[3];
+        arn = args[4];
+        keyName = args[5];
 
         //get the queue URL's for the local app
         localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
-        managerToLocalQueueUrl = sqs.getQueueUrl(managerToLocalQueueName);
 
         //create the queues for the workers
         managerToWorkersQueueUrl = GeneralUtils.initSqs(MANAGER_TO_WORKERS_QUEUE_NAME, sqs);
@@ -66,52 +74,31 @@ public class Manager {
         s3 = new S3client();
         sqs = new SQSclient();
 
-        AtomicBoolean shouldContinue = new AtomicBoolean(true);
         numOfActiveWorkers = 0;
         sizeOfCurrentInput = 0;
-        completedTasks = new HashMap<>();
-        tasksResults = new HashMap<>();
+        completedTasks = new ConcurrentHashMap<>();
+        tasksResults = new ConcurrentHashMap<>();
+        managerToLocalQueues = new ConcurrentHashMap<>();
 
+        AtomicInteger shutdownCounter = new AtomicInteger(0);
+        ExecutorService executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
+        for(int i=0; i<NUM_OF_THREADS; i++) {
+            executor.submit(() -> {
+                while (!Thread.interrupted()) {
+                    List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
+                    handleMessage(n, executor, messages);
+                }
+                shutdownCounter.incrementAndGet(); // signal the main thread that this thread is finished
+            });
+        }
 
-        ExecutorService executor = Executors.newFixedThreadPool(5);
-        executor.execute(() -> { //TODO check if execute is for all threads
-            while (!Thread.interrupted()) {
-                List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
-                handleMessage(n, shouldContinue, executor, messages);
-            }
-        });
-
-        while (shouldContinue.get()){
+        while (shutdownCounter.get() != NUM_OF_THREADS || !completedTasks.isEmpty()){
             //poll queue for results
             List<Message> messages = sqs.getMessages(workersToManagerQueueUrl, 5);
             for(Message m : messages){
                 //get all needed information and the result
-                Map<String, MessageAttributeValue> attributes = m.messageAttributes();
-                String localAppID = attributes.get("LocalAppID").stringValue(); //TODO null check
-                String url = attributes.get("Url").stringValue();
-                String result = m.body();
-                //add result to hashmap + update counter of completed tasks of localAppID
-                Integer new_count = completedTasks.get(localAppID) + 1;
-                completedTasks.put(localAppID,new_count);
-                tasksResults.get(localAppID).put(url, result);
-                //check if now all subtasks of localAppID are done
-                if(new_count == tasksResults.get(localAppID).size()){
-                    //TODO: do this part with another thread
-                    //reset counter
-                    completedTasks.remove(localAppID);
-//                    completedTasks.put(localAppID,0); //delete this
-                    createSendSummaryFile(localAppID);
-                }
-                //delete message from queue
-                List<Message> msgToDelete = new ArrayList<>();
-                msgToDelete.add(m);
-                if(!sqs.deleteMessages(msgToDelete, workersToManagerQueueUrl)){
-                    System.out.println("Error at deleting task message from workersToManagerQueue");
-                    System.exit(1); // Fatal Error
-                }
-            }
-
-
+                handleResultMessage(m);
+            } //TODO add in worker if bad resource delete msg from queue
         }
 
         //terminate seq kill all ec2 and sqs
@@ -119,17 +106,59 @@ public class Manager {
 
     }
 
-    //Create summary file of all url subtasks results and send to the local application
-    private static void createSendSummaryFile(String localAppID) {
-        //TODO:
+    private static void handleResultMessage(Message m) {
+        Map<String, MessageAttributeValue> attributes = m.messageAttributes();
+        String localAppID = attributes.get("LocalAppID").stringValue();
+        String url = attributes.get("Url").stringValue();
+        String result = m.body();
+
+        //check if an exception occurred in worker node
+        if(result.equals("WORKER EXCEPTION")){
+            result = attributes.get("ExceptionSummary").stringValue();
+        }
+
+        //add result to hashmap + update counter of completed tasks of localAppID
+        Integer new_count = completedTasks.get(localAppID) + 1;
+        completedTasks.put(localAppID,new_count);
+        tasksResults.get(localAppID).put(url, result);
+        //check if now all subtasks of localAppID are done
+        if(new_count == tasksResults.get(localAppID).size()){
+            completedTasks.remove(localAppID); //delete counter, task is done
+            tasksResults.remove(localAppID); // delete sub tasks map
+            try {
+                createSendSummaryFile(localAppID);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        //delete message from queue
+        List<Message> msgToDelete = new ArrayList<>();
+        msgToDelete.add(m);
+        if(!sqs.deleteMessages(msgToDelete, workersToManagerQueueUrl)){
+            System.out.println("Error at deleting task message from workersToManagerQueue");
+            System.exit(1); // Fatal Error
+        }
     }
 
-    private static void handleMessage(int n, AtomicBoolean shouldContinue, ExecutorService executor, List<Message> messages) {
+    //Create summary file of all url subtasks results in json format and send to the local application
+    private static void createSendSummaryFile(String localAppID) throws IOException {
+        FileWriter fstream = new FileWriter(localAppID+"_result.txt");
+        BufferedWriter out = new BufferedWriter(fstream);
+
+        String jsonResult = JacksonUtils.toJsonString(tasksResults.get(localAppID));
+        out.write(jsonResult);
+
+        if(!s3.putObject(s3BucketName, localAppID+"_result", localAppID+"_result.txt")){
+            System.out.println("Error in createSendSummaryFile");
+        }
+        managerToLocalQueues.remove(localAppID); // delete queue url from map
+    }
+
+    private static void handleMessage(int n, ExecutorService executor, List<Message> messages) {
         if(!messages.isEmpty()){
             Message message = messages.get(0);
             String body = message.body();
             if(body.equals("terminate")){
-                shouldContinue.compareAndSet(true,false);
                 executor.shutdown();
                 if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
                     System.out.println("Error at deleting task message from localToManagerQueue");
@@ -137,16 +166,19 @@ public class Manager {
                 }
             }
             else{
+                //add manager to local app queue to map
+                String queueUrl = message.messageAttributes().get("managerToLocalQueueUrl").stringValue();
+                managerToLocalQueues.put(body, queueUrl);
                 //break up task to subtasks and send to workers
-                distributeTasks(n, messages, body);
+                distributeTasks(n, messages, body); // body is the localAppID
             }
         }
     }
 
     //TODO heavy task, check if VISIBILITY is enough
-    private static void distributeTasks(int n, List<Message> messages, String body) {
-        String inputFilePath = body +"_input.txt";
-        if(!s3.getObject(s3BucketName, body, inputFilePath)) { // body is the key in s3
+    private static void distributeTasks(int n, List<Message> messages, String localAppID) {
+        String inputFilePath = localAppID +"_input.txt";
+        if(!s3.getObject(s3BucketName, localAppID, inputFilePath)) { // body is the key in s3
             System.out.println("Error downloading input file from s3");
             return;
         }
@@ -157,7 +189,7 @@ public class Manager {
         //check there is a sufficient number of workers
         loadBalance(n);
         //send url tasks to workers
-        sendTasks(body, urlList);
+        sendTasks(localAppID, urlList);
         //delete task message from queue (we just sent all subtaks to the workers)
         if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
             System.out.println("Error at deleting task message from localToManagerQueue");

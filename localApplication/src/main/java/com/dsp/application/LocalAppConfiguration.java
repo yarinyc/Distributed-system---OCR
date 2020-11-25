@@ -16,7 +16,7 @@ public class LocalAppConfiguration {
     private String ami;
 
     public LocalAppConfiguration() {
-        s3BucketName = "locals_manager_shared_bucket_1586521648532";
+        s3BucketName = "locals_manager_shared_bucket_1586521648532"; //TODO change names
         localToManagerQueueName = "localToManager_1586521648532";
         managerToLocalQueueName = "managerToLocal_1586521648532";
         arn = "arn:aws:iam::322970830450:instance-profile/ec2_role_full_access";

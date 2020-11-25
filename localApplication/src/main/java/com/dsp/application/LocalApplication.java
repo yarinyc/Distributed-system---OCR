@@ -5,10 +5,14 @@ import com.dsp.aws.S3client;
 import com.dsp.aws.SQSclient;
 import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.services.ec2.model.*;
+import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
+import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
+import sun.font.EAttribute;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 //ec2 role: ec2roledsp1
@@ -56,9 +60,13 @@ public class LocalApplication {
         initManager();
 
         //upload input file to s3 + send message to manager
-        String s3InputFileKey = "task_"+ GeneralUtils.getUniqueID();
+        String localAppID = GeneralUtils.getUniqueID();
+
+        // init an sqs queue for manager to local communication
+        managerToLocalQueueUrl = GeneralUtils.initSqs("sqs_"+localAppID, sqs);
+
         //if upload to s3 was successful, sends message to manager
-        sendTask(inputFileName, s3InputFileKey);
+        sendTask(inputFileName, localAppID);
 
         //poll managerToLocal queue for response
         while(!isManagerDone){
@@ -66,7 +74,7 @@ public class LocalApplication {
             //we will send it as an attribute in the response message from the manager and change
             //the responseKey field value in checkResponse
             try {
-                TimeUnit.SECONDS.sleep(20);
+                TimeUnit.SECONDS.sleep(5);
             } catch (Exception e){
                 e.printStackTrace();
                 System.exit(1);
@@ -76,7 +84,7 @@ public class LocalApplication {
 
         //get summary file from s3 bucket and create output html file
         if(s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
-            createHtml();
+            createHtml(outputFileName);
         }
         else{
             System.out.println("Error at downloading summary file from s3 bucket");
@@ -91,6 +99,9 @@ public class LocalApplication {
                 //System.exit(1);
             }
         }
+        if(!sqs.deleteQueue(managerToLocalQueueUrl)){
+            System.out.println("Error at deleting sqs queue managerToLocalQueueUrl");
+        }
         System.out.println("exiting");
     }
 
@@ -100,6 +111,7 @@ public class LocalApplication {
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("LocalApp").build());
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
+            attributesMap.put("managerToLocalQueueUrl", MessageAttributeValue.builder().dataType("String").stringValue(managerToLocalQueueUrl).build());
             if(!sqs.sendMessage(localToManagerQueueUrl, s3InputFileKey,attributesMap)) {
                 System.out.println("Error at sending task message to manager");
                 System.exit(1);
@@ -112,15 +124,21 @@ public class LocalApplication {
     }
 
     //create final html output file
-    private static void createHtml() {
-        //TODO
+    private static void createHtml(String outputFileName) {
+        if(!s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
+            System.out.println("Error in createHtml");
+        }
+        //TODO create the actual html
 
     }
 
     //check if manager finished task (message in managerToLocalQueue)
     private static boolean checkResponse() {
-        //TODO
-
+        List<Message> messages = sqs.getMessages(managerToLocalQueueUrl, 1);
+        for (Message m : messages) {
+            responseKey = m.body();
+            return true;
+        }
         return false;
     }
 
@@ -158,9 +176,8 @@ public class LocalApplication {
         if(!s3.getAllBucketNames().contains(s3BucketName)){
             s3.createBucket(s3BucketName);
         }
-        //init for all sqs queues
+        //init local to manager sqs queue
         localToManagerQueueUrl = GeneralUtils.initSqs(config.getLocalToManagerQueueName(), sqs);
-        managerToLocalQueueUrl = GeneralUtils.initSqs(config.getManagerToLocalQueueName(), sqs);
     }
 
     private static String createManagerScript() {

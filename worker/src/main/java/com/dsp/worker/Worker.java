@@ -1,7 +1,11 @@
 package com.dsp.worker;
 
+import com.dsp.utils.GeneralUtils;
 import net.sourceforge.tess4j.Tesseract;
 import net.sourceforge.tess4j.TesseractException;
+
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -15,10 +19,9 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
 
-import java.util.ArrayList;
-import java.util.HashMap;
+import javax.imageio.ImageIO;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
 
 public class Worker {
     private static EC2Client ec2;
@@ -32,9 +35,6 @@ public class Worker {
         String managerToWorkersQueueUrl = args[0];
         String workersToManagerQueueUrl = args[1];
 
-        //boolean flag for running
-        boolean shouldTerminate = false;
-
         //init AWS clients
         ec2 = new EC2Client();
         s3 = new S3client();
@@ -42,23 +42,20 @@ public class Worker {
 
         //create OCR engine
         tesseract = new Tesseract();
+        // /usr/share/tesseract-ocr/
+        tesseract.setDatapath("C:\\Users\\ycohen\\Desktop\\tessdata");
 
-        while(!shouldTerminate){
-            List<Message> messages = sqs.getMessages(managerToWorkersQueueUrl, 5);
+        while(!Thread.interrupted()){
+            List<Message> messages = sqs.getMessages(managerToWorkersQueueUrl, 1);
             for(Message m : messages){
-                if(m.body().equals("terminate")){
-                    shouldTerminate = true;
-                    break;
-                }
-                else{
-                    handleOcrTask(m,managerToWorkersQueueUrl);
-                }
+                handleOcrTask(m,workersToManagerQueueUrl, managerToWorkersQueueUrl);
             }
         }
+        System.out.println("Worker finished");
     }
 
     //handle OCR Task
-    private static void handleOcrTask(Message m, String managerToWorkersQueueUrl) {
+    private static void handleOcrTask(Message m, String workersToManagerQueueUrl, String managerToWorkersQueueUrl) {
         Map<String, MessageAttributeValue> attributes = m.messageAttributes();
         String localAppID = attributes.get("LocalAppID").stringValue();
         String inputUrl = m.body();
@@ -66,33 +63,17 @@ public class Worker {
         String imagePath = downloadImage(inputUrl);
         if (imagePath.equals("")) {
             System.out.println("Error: Image not downloaded.... continuing to next ocr task, URL: " +  inputUrl);
-            //send worker exception notification to manager
-            HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
-            attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
-            attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
-            attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(localAppID).build());
-            attributesMap.put("Url", MessageAttributeValue.builder().dataType("String").stringValue(inputUrl).build());
-            attributesMap.put("ExceptionSummary", MessageAttributeValue.builder().dataType("String").stringValue("Image download error").build());
-            if(!sqs.sendMessage(managerToWorkersQueueUrl, "WORKER EXCEPTION", attributesMap)) {
-                System.out.println("Error at sending worker exception to manager");
-                System.exit(1); // Fatal Error
-            }
+            sendException(workersToManagerQueueUrl, localAppID, inputUrl, "Image download error");
+            deleteMessageFromQueue(m, managerToWorkersQueueUrl);
+            return;
         }
         //apply ocr on the image
         String ocrResult = applyOcr(imagePath, tesseract);
         if(ocrResult == null){
             System.out.println("Error during OCR operation.... continuing to next ocr task, URL: "+ inputUrl);
-            //send worker exception notification to manager
-            HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
-            attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
-            attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
-            attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(localAppID).build());
-            attributesMap.put("Url", MessageAttributeValue.builder().dataType("String").stringValue(inputUrl).build());
-            attributesMap.put("ExceptionSummary", MessageAttributeValue.builder().dataType("String").stringValue("OCR operation error").build());
-            if(!sqs.sendMessage(managerToWorkersQueueUrl, "WORKER EXCEPTION", attributesMap)) {
-                System.out.println("Error at sending worker exception to manager");
-                System.exit(1); // Fatal Error
-            }
+            sendException(workersToManagerQueueUrl, localAppID, inputUrl, "OCR operation error");
+            deleteMessageFromQueue(m, managerToWorkersQueueUrl);
+            return;
         }
         //send ocr result to manager
         HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
@@ -100,12 +81,20 @@ public class Worker {
         attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
         attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(localAppID).build());
         attributesMap.put("Url", MessageAttributeValue.builder().dataType("String").stringValue(inputUrl).build());
-        if(!sqs.sendMessage(managerToWorkersQueueUrl, ocrResult, attributesMap)) {
+        if(!sqs.sendMessage(workersToManagerQueueUrl, ocrResult, attributesMap)) {
             System.out.println("Error at sending OCR task result to manager, URL: " + inputUrl);
             System.exit(1); // Fatal Error
         }
 
         //delete ocr task message from queue - only if OCR was successful!
+        deleteMessageFromQueue(m, managerToWorkersQueueUrl);
+
+        if(!new File(imagePath).delete()){
+            System.out.println("Image can't be deleted");
+        }
+    }
+
+    private static void deleteMessageFromQueue(Message m, String managerToWorkersQueueUrl) {
         List<Message> msgToDelete = new ArrayList<>();
         msgToDelete.add(m);
         if(!sqs.deleteMessages(msgToDelete, managerToWorkersQueueUrl)){
@@ -114,10 +103,25 @@ public class Worker {
         }
     }
 
+    //send worker exception notification to manager
+    private static void sendException(String workersToManagerQueueUrl, String localAppID, String inputUrl, String errorMessage) {
+        HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
+        attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
+        attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
+        attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(localAppID).build());
+        attributesMap.put("Url", MessageAttributeValue.builder().dataType("String").stringValue(inputUrl).build());
+        attributesMap.put("ExceptionSummary", MessageAttributeValue.builder().dataType("String").stringValue(errorMessage).build());
+        if (!sqs.sendMessage(workersToManagerQueueUrl, "WORKER EXCEPTION", attributesMap)) {
+            System.out.println("Error at sending worker exception to manager");
+        }
+    }
+
+    // TODO sudo apt-get tesseract-ocr
+    // TODO call tess.setDataPath() to point to your tesseract installation (/usr/share/tesseract-ocr/ for my Ubuntu 14.04)
+
     private static String applyOcr(String imagePath, Tesseract tesseract){
         try {
             //TODO: check if setDataPath should be the path of the downloaded image
-            tesseract.setDatapath("./");
             // apply OCR on the image
             return tesseract.doOCR(new File(imagePath));
         }
@@ -129,23 +133,39 @@ public class Worker {
 
     //downloads image from url
     private static String downloadImage(String urlInput) {
-        String downloadFilePath = urlInput + "_Image.jpg";
-        try{
+        String downloadFilePath = GeneralUtils.getUniqueID() + "__Image.png";
+        BufferedImage image = null;
+        try {
             URL url = new URL(urlInput);
-            InputStream inputStream = url.openStream();
-            OutputStream fileOutputStream = new FileOutputStream(downloadFilePath);
-            int ch;
-            while ((ch = inputStream.read()) != -1) { //read till end of file
-                fileOutputStream.write(ch);
+            image = ImageIO.read(url);
+            if(image == null){
+                System.out.println("Error at downloadImage: image can't be downloaded");
+                return "";
             }
-            inputStream.close();
-            fileOutputStream.close();
-            return downloadFilePath;
-        }
-        catch (IOException e){
-            System.out.println("Error at creating url object");
+            ImageIO.write(image, "png",new File(downloadFilePath) );
+        } catch (IOException e) {
+            System.out.println("Error at downloadImage: broken link");
+            e.printStackTrace();
             return "";
         }
+        return downloadFilePath;
+
+//        try{
+//            URL url = new URL(urlInput);
+//            InputStream inputStream = url.openStream();
+//            OutputStream fileOutputStream = new FileOutputStream(downloadFilePath);
+//            int ch;
+//            while ((ch = inputStream.read()) != -1) { //read till end of file
+//                fileOutputStream.write(ch);
+//            }
+//            inputStream.close();
+//            fileOutputStream.close();
+//            return downloadFilePath;
+//        }
+//        catch (IOException e){
+//            System.out.println("Error at creating url object");
+//            return "";
+//        }
     }
 
 
