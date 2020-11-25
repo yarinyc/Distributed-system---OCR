@@ -10,6 +10,7 @@ import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
 import sun.font.EAttribute;
 
+import java.nio.file.Paths;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,6 +31,7 @@ public class LocalApplication {
     private static String localToManagerQueueUrl = null;
     private static String managerToLocalQueueUrl = null;
     private static String responseKey = null;
+    private static int n;
 
     public static void main(String[] args){
 
@@ -43,7 +45,7 @@ public class LocalApplication {
         //cli args
         String inputFileName = args[0];
         String outputFileName = args[1];
-        int n = Integer.parseInt(args[2]);
+        n = Integer.parseInt(args[2]);
         if(args.length == 4 && args[3].equals("terminate")) {
             shouldTerminate = true;
         }
@@ -91,7 +93,7 @@ public class LocalApplication {
             System.exit(1);
         }
 
-        //if received shouldTerminate in args, send terminate message to manager TODO maybe change to while()
+        //if received shouldTerminate in args, send terminate message to manager
         if(shouldTerminate){
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             if(!sqs.sendMessage(localToManagerQueueUrl,"terminate",attributesMap)) {
@@ -161,9 +163,23 @@ public class LocalApplication {
         //check s3 and sqs services (bucket and 2 queues) are created, if not we create them
         initServices();
         //manager node is not running
-        s3.putObject(config.getS3BucketName(), "jars/manager.jar", "./jars/manager.jar");
+        System.out.println("uploading manager jar file...");
+        if(!s3.putObject(config.getS3BucketName(), "jars/manager.jar", Paths.get("jars","manager.jar").toString())){
+            System.out.println("Error in local app: s3.putObject manager.jar");
+            System.exit(1);
+        }
         System.out.println("uploading worker jar file...");
-        s3.putObject(config.getS3BucketName(), "jars/worker.jar", "./jars/worker.jar");
+        if(!s3.putObject(config.getS3BucketName(), "jars/worker.jar", Paths.get("jars","worker.jar").toString())){
+            System.out.println("Error in local app: s3.putObject worker.jar");
+            System.exit(1);
+        }
+        //short sleep to make sure s3 is ready with the jars
+        try {
+            TimeUnit.SECONDS.sleep(4);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
         List<Instance> instances = ec2.createEC2Instances(config.getAmi(), config.getAwsKeyPair(), 1, 1, createManagerScript(), config.getArn(), config.getInstanceType());
         String instanceId = instances.get(0).instanceId();
         ec2.createTag("Name", "manager", instanceId);
@@ -183,15 +199,13 @@ public class LocalApplication {
     private static String createManagerScript() {
         String userData = "";
         userData = userData + "#!/bin/bash\n";
-        userData = userData + "sudo mkdir yarintry";
-        return GeneralUtils.toBase64(userData);
-    }
+        userData = userData + "sudo mkdir /jars/\n";
+        userData = userData + "sudo aws s3 cp s3://" + s3BucketName + "/jars/manager.jar /jars/\n";
+        userData += String.format("sudo java -jar /jars/manager.jar %s %s %s %s %s %s",
+                n, config.getLocalToManagerQueueName(), config.getS3BucketName(),
+                config.getAmi(), config.getArn(), config.getAwsKeyPair());
 
-    private static void ec2Test(String arn) {
-        EC2Client ec2Client = new EC2Client();
-        String amiId = "ami-076515f20540e6e0b";
-        InstanceType instanceType = InstanceType.T2_MICRO;
-        List<Instance> instances = ec2Client.createEC2Instances(amiId, "ec2key_dsp1", 1, 1, createManagerScript(), arn, instanceType);
+        return GeneralUtils.toBase64(userData);
     }
 
 }

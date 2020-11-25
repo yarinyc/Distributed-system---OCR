@@ -3,6 +3,7 @@ package com.dsp.utils;
 import com.dsp.aws.SQSclient;
 
 import java.io.UnsupportedEncodingException;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -13,11 +14,7 @@ public class GeneralUtils {
 
     public static String toBase64(String data) {
         String base64UserData = null;
-        try {
-            base64UserData = new String(Base64.getEncoder().encode(data.getBytes("UTF-8")), "UTF-8");
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
-        }
+        base64UserData = new String(Base64.getEncoder().encode(data.getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8);
         return base64UserData;
     }
 

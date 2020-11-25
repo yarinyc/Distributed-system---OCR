@@ -4,6 +4,7 @@ import com.dsp.aws.EC2Client;
 import com.dsp.aws.S3client;
 import com.dsp.aws.SQSclient;
 import com.dsp.utils.GeneralUtils;
+import com.sun.xml.internal.bind.v2.model.annotation.RuntimeAnnotationReader;
 import software.amazon.awssdk.core.util.json.JacksonUtils;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
@@ -33,6 +34,8 @@ public class Manager {
     private static EC2Client ec2;
     private static S3client s3;
     private static SQSclient sqs;
+
+    private static ExecutorService executor;
 
     private static String localToManagerQueueUrl;
     private static String managerToWorkersQueueUrl;
@@ -81,12 +84,12 @@ public class Manager {
         managerToLocalQueues = new ConcurrentHashMap<>();
 
         AtomicInteger shutdownCounter = new AtomicInteger(0);
-        ExecutorService executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
+        executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
         for(int i=0; i<NUM_OF_THREADS; i++) {
             executor.submit(() -> {
                 while (!Thread.interrupted()) {
                     List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
-                    handleMessage(n, executor, messages);
+                    handleMessage(n, messages);
                 }
                 shutdownCounter.incrementAndGet(); // signal the main thread that this thread is finished
             });
@@ -98,10 +101,10 @@ public class Manager {
             for(Message m : messages){
                 //get all needed information and the result
                 handleResultMessage(m);
-            } //TODO add in worker if bad resource delete msg from queue
+            }
         }
 
-        //terminate seq kill all ec2 and sqs
+        //TODO terminate seq kill all ec2 and sqs
 
 
     }
@@ -123,13 +126,19 @@ public class Manager {
         tasksResults.get(localAppID).put(url, result);
         //check if now all subtasks of localAppID are done
         if(new_count == tasksResults.get(localAppID).size()){
+            synchronized (sizeOfCurrentInput){
+                sizeOfCurrentInput -= tasksResults.get(localAppID).size();
+            }
             completedTasks.remove(localAppID); //delete counter, task is done
             tasksResults.remove(localAppID); // delete sub tasks map
-            try {
-                createSendSummaryFile(localAppID);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            executor.submit(()->{
+                try {
+                    createSendSummaryFile(localAppID);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            });
+
         }
         //delete message from queue
         List<Message> msgToDelete = new ArrayList<>();
@@ -148,13 +157,22 @@ public class Manager {
         String jsonResult = JacksonUtils.toJsonString(tasksResults.get(localAppID));
         out.write(jsonResult);
 
-        if(!s3.putObject(s3BucketName, localAppID+"_result", localAppID+"_result.txt")){
-            System.out.println("Error in createSendSummaryFile");
+        String responseKey = localAppID + "_result";
+        if(!s3.putObject(s3BucketName, responseKey, localAppID+"_result.txt")){
+            System.out.println("Error in createSendSummaryFile: s3.putObject");
+        }
+        String queueUrl = managerToLocalQueues.get(localAppID);
+        HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
+        attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
+        attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("LocalApp").build());
+        if(!sqs.sendMessage(queueUrl, responseKey, attributesMap)){
+            System.out.println("Error in createSendSummaryFile: sqs.sendMessage");
+            System.exit(1); // Fatal Error
         }
         managerToLocalQueues.remove(localAppID); // delete queue url from map
     }
 
-    private static void handleMessage(int n, ExecutorService executor, List<Message> messages) {
+    private static void handleMessage(int n, List<Message> messages) {
         if(!messages.isEmpty()){
             Message message = messages.get(0);
             String body = message.body();
@@ -175,7 +193,6 @@ public class Manager {
         }
     }
 
-    //TODO heavy task, check if VISIBILITY is enough
     private static void distributeTasks(int n, List<Message> messages, String localAppID) {
         String inputFilePath = localAppID +"_input.txt";
         if(!s3.getObject(s3BucketName, localAppID, inputFilePath)) { // body is the key in s3
@@ -191,7 +208,7 @@ public class Manager {
         //send url tasks to workers
         sendTasks(localAppID, urlList);
         //delete task message from queue (we just sent all subtaks to the workers)
-        if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
+        if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){     //TODO heavy task, maybe move deletion to before this function
             System.out.println("Error at deleting task message from localToManagerQueue");
             System.exit(1); // Fatal Error
         }
@@ -228,6 +245,11 @@ public class Manager {
             List<Instance> instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
             if(instances != null){
                 numOfActiveWorkers = numOfWorkersNeeded;
+                for (Instance instance : instances) {
+                    if(!ec2.createTag("Name", "worker", instance.instanceId())){
+                        System.out.println("Error in manager: loadBalance ec2.createTag with instnceId: " + instance.instanceId());
+                    }
+                }
             }
         }
     }
@@ -243,10 +265,17 @@ public class Manager {
         }
     }
 
+    // TODO sudo apt-get tesseract-ocr
+    // TODO sudo apt install libtesseract-dev https://medium.com/quantrium-tech/installing-tesseract-4-on-ubuntu-18-04-b6fcd0cbd78f
+
     private static String createWorkerScript() {
         String userData = "";
         userData = userData + "#!/bin/bash\n";
-        userData = userData + "sudo mkdir yarintry";
+        userData = userData + "sudo apt install tesseract-ocr\n";
+        userData = userData + "sudo mkdir /jars/\n";
+        userData = userData + "sudo aws s3 cp s3://" + s3BucketName + "/jars/worker.jar /jars/\n";
+        userData += String.format("sudo java -jar /jars/worker.jar %s %s", managerToWorkersQueueUrl, workersToManagerQueueUrl);
+
         return GeneralUtils.toBase64(userData);
     }
 

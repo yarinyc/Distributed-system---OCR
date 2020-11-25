@@ -42,8 +42,10 @@ public class Worker {
 
         //create OCR engine
         tesseract = new Tesseract();
-        // /usr/share/tesseract-ocr/
-        tesseract.setDatapath("C:\\Users\\ycohen\\Desktop\\tessdata");
+        // TODO call tess.setDataPath() to point to your tesseract installation (/usr/share/tesseract-ocr/ for my Ubuntu 14.04)
+        // TODO check this is the correct path for tess after apt-get
+        tesseract.setDatapath("/usr/share/tesseract-ocr/");
+        //tesseract.setDatapath("C:\\Users\\ycohen\\Desktop\\tessdata");
 
         while(!Thread.interrupted()){
             List<Message> messages = sqs.getMessages(managerToWorkersQueueUrl, 1);
@@ -116,12 +118,8 @@ public class Worker {
         }
     }
 
-    // TODO sudo apt-get tesseract-ocr
-    // TODO call tess.setDataPath() to point to your tesseract installation (/usr/share/tesseract-ocr/ for my Ubuntu 14.04)
-
     private static String applyOcr(String imagePath, Tesseract tesseract){
         try {
-            //TODO: check if setDataPath should be the path of the downloaded image
             // apply OCR on the image
             return tesseract.doOCR(new File(imagePath));
         }
