@@ -48,7 +48,7 @@ public class Manager {
     private static Map<String, String> managerToLocalQueues;
 
     private static Integer numOfActiveWorkers;
-    private static Integer sizeOfCurrentInput;
+    private static AtomicInteger sizeOfCurrentInput;
     private static String arn;
     private static String ami;
     private static String s3BucketName;
@@ -78,7 +78,7 @@ public class Manager {
         sqs = new SQSclient();
 
         numOfActiveWorkers = 0;
-        sizeOfCurrentInput = 0;
+        sizeOfCurrentInput = new AtomicInteger(0);
         completedTasks = new ConcurrentHashMap<>();
         tasksResults = new ConcurrentHashMap<>();
         managerToLocalQueues = new ConcurrentHashMap<>();
@@ -121,14 +121,16 @@ public class Manager {
         }
 
         //add result to hashmap + update counter of completed tasks of localAppID
-        Integer new_count = completedTasks.get(localAppID) + 1;
+        int new_count = completedTasks.get(localAppID) + 1;
         completedTasks.put(localAppID,new_count);
         tasksResults.get(localAppID).put(url, result);
         //check if now all subtasks of localAppID are done
         if(new_count == tasksResults.get(localAppID).size()){
-            synchronized (sizeOfCurrentInput){
-                sizeOfCurrentInput -= tasksResults.get(localAppID).size();
-            }
+
+            //decrement number of subtasks from counter
+            // -> so we don't allocate more potentially unneeded workers in loadBalance method
+            sizeOfCurrentInput.getAndAdd(-tasksResults.get(localAppID).size());
+
             completedTasks.remove(localAppID); //delete counter, task is done
             tasksResults.remove(localAppID); // delete sub tasks map
             executor.submit(()->{
@@ -177,7 +179,7 @@ public class Manager {
             Message message = messages.get(0);
             String body = message.body();
             if(body.equals("terminate")){
-                executor.shutdown();
+                executor.shutdownNow();
                 if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
                     System.out.println("Error at deleting task message from localToManagerQueue");
                     System.exit(1); // Fatal Error
@@ -200,9 +202,8 @@ public class Manager {
             return;
         }
         List<String> urlList = parseInputFile(inputFilePath);
-        synchronized (sizeOfCurrentInput){
-            sizeOfCurrentInput+=urlList.size();
-        }
+        //add number of new subtasks to counter
+        sizeOfCurrentInput.getAndAdd(urlList.size());
         //check there is a sufficient number of workers
         loadBalance(n);
         //send url tasks to workers
@@ -234,21 +235,20 @@ public class Manager {
 
     // checks if there are enough workers running, if not creates them.
     private static void loadBalance(int n) {
-        synchronized (sizeOfCurrentInput){
-            int numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput/n)+1;
-            numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
-            if(numOfWorkersNeeded <= numOfActiveWorkers){
-                return;
-            }
-            int delta = numOfWorkersNeeded - numOfActiveWorkers;
-            String userData = createWorkerScript();
-            List<Instance> instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
-            if(instances != null){
-                numOfActiveWorkers = numOfWorkersNeeded;
-                for (Instance instance : instances) {
-                    if(!ec2.createTag("Name", "worker", instance.instanceId())){
-                        System.out.println("Error in manager: loadBalance ec2.createTag with instnceId: " + instance.instanceId());
-                    }
+        int currentSize = sizeOfCurrentInput.get();
+        int numOfWorkersNeeded = currentSize % n == 0 ? currentSize / n : (currentSize/n)+1;
+        numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
+        if(numOfWorkersNeeded <= numOfActiveWorkers){
+            return;
+        }
+        int delta = numOfWorkersNeeded - numOfActiveWorkers;
+        String userData = createWorkerScript();
+        List<Instance> instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
+        if(instances != null){
+            numOfActiveWorkers = numOfWorkersNeeded;
+            for (Instance instance : instances) {
+                if(!ec2.createTag("Name", "worker", instance.instanceId())){
+                    System.out.println("Error in manager: loadBalance ec2.createTag with instnceId: " + instance.instanceId());
                 }
             }
         }
