@@ -10,7 +10,7 @@ import java.util.concurrent.TimeUnit;
 
 public class GeneralUtils {
 
-    public static final String VISIBILITY = "10";
+    public static final String VISIBILITY = "30";
 
     public static String toBase64(String data) {
         String base64UserData = null;

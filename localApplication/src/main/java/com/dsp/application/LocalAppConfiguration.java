@@ -3,11 +3,16 @@ package com.dsp.application;
 import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
+
 public class LocalAppConfiguration {
 
     private String s3BucketName;
     private String localToManagerQueueName;
-    private String managerToLocalQueueName;
     private String arn;
     private String awsKeyPair;
 
@@ -16,19 +21,28 @@ public class LocalAppConfiguration {
     private String ami;
 
     public LocalAppConfiguration() {
-        s3BucketName = "locals_manager_shared_bucket_1586521648532"; //TODO change names
-        localToManagerQueueName = "localToManager_1586521648532";
-        managerToLocalQueueName = "managerToLocal_1586521648532";
-        arn = "arn:aws:iam::322970830450:instance-profile/ec2_role_full_access";
-        awsKeyPair = "ec2key_dsp1";
-        ami = "ami-076515f20540e6e0b";
         instanceType = InstanceType.T2_MICRO;
         readConfigFile();
     }
 
     //TODO: read config from file
-    private static void readConfigFile(){
-
+    private void readConfigFile(){
+        List<String> conf;
+        try {
+            conf = Files.readAllLines(Paths.get("resources", "config.txt"), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            e.printStackTrace();
+            return;
+        }
+        if(conf.size() < 5 ){
+            System.out.println("Error in readConfigFile: bad config file");
+            System.exit(1);
+        }
+        s3BucketName = conf.get(0);
+        localToManagerQueueName = conf.get(1);
+        arn = conf.get(2);
+        awsKeyPair = conf.get(3);
+        ami = conf.get(4);
     }
 
     public String getS3BucketName() {
@@ -37,10 +51,6 @@ public class LocalAppConfiguration {
 
     public String getLocalToManagerQueueName() {
         return localToManagerQueueName;
-    }
-
-    public String getManagerToLocalQueueName() {
-        return managerToLocalQueueName;
     }
 
     public String getArn() {

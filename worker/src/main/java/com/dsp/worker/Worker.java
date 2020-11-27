@@ -4,24 +4,21 @@ import com.dsp.utils.GeneralUtils;
 import net.sourceforge.tess4j.Tesseract;
 import net.sourceforge.tess4j.TesseractException;
 
-import java.awt.*;
 import java.awt.image.BufferedImage;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URL;
+import java.util.*;
+import java.util.List;
+import javax.imageio.ImageIO;
+
 import com.dsp.aws.EC2Client;
 import com.dsp.aws.S3client;
 import com.dsp.aws.SQSclient;
+
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
-
-import javax.imageio.ImageIO;
-import java.util.*;
-import java.util.List;
 
 public class Worker {
     private static EC2Client ec2;
@@ -44,8 +41,7 @@ public class Worker {
         tesseract = new Tesseract();
         // TODO call tess.setDataPath() to point to your tesseract installation (/usr/share/tesseract-ocr/ for my Ubuntu 14.04)
         // TODO check this is the correct path for tess after apt-get
-        tesseract.setDatapath("/usr/share/tesseract-ocr/");
-        //tesseract.setDatapath("C:\\Users\\ycohen\\Desktop\\tessdata");
+        tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
 
         while(!Thread.interrupted()){
             List<Message> messages = sqs.getMessages(managerToWorkersQueueUrl, 1);

@@ -1,0 +1,5 @@
+s3bucket-4d2e1655fa5e5dc5
+localToManagerSQS_4d2e1655fa5e5dc5
+arn:aws:iam::322970830450:instance-profile/ec2_role_full_access
+ec2key_dsp1
+ami-070ffc5b3faabe7cf

@@ -47,11 +47,13 @@ public class S3client {
                                     .bucket(bucketName).key(bucketKey)
                                     .build();
         try {
+            System.out.println("putting file in s3 bucket");
             s3.putObject(putRequest, RequestBody.fromFile(new File(inFilePath)));
         } catch (Exception e) {
             e.printStackTrace();
             return false;
         }
+        System.out.println("done putting file in s3 bucket");
         return true;
     }
 

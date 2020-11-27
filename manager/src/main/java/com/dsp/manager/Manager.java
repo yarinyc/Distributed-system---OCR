@@ -4,7 +4,6 @@ import com.dsp.aws.EC2Client;
 import com.dsp.aws.S3client;
 import com.dsp.aws.SQSclient;
 import com.dsp.utils.GeneralUtils;
-import com.sun.xml.internal.bind.v2.model.annotation.RuntimeAnnotationReader;
 import software.amazon.awssdk.core.util.json.JacksonUtils;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
@@ -12,6 +11,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -21,7 +21,6 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class Manager {
@@ -36,6 +35,7 @@ public class Manager {
     private static SQSclient sqs;
 
     private static ExecutorService executor;
+    private static ExecutorService resultExecutor;
 
     private static String localToManagerQueueUrl;
     private static String managerToWorkersQueueUrl;
@@ -44,7 +44,7 @@ public class Manager {
     //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
     //each localApp has it's own hashmap (Inner hashmap) of task results
     private static Map<String, Map<String, String>> tasksResults;
-    private static Map<String, Integer> completedTasks;
+    private static Map<String, Integer> completedSubTasksCounters;
     private static Map<String, String> managerToLocalQueues;
 
     private static Integer numOfActiveWorkers;
@@ -55,7 +55,7 @@ public class Manager {
     private static String keyName;
 
     public static void main(String[] args) {
-        System.out.println("started manager process");
+        System.out.println("Started manager process");
 
         //get data from args
         int n = Integer.parseInt(args[0]);
@@ -65,6 +65,11 @@ public class Manager {
         arn = args[4];
         keyName = args[5];
 
+        //init AWS clients
+        ec2 = new EC2Client();
+        s3 = new S3client();
+        sqs = new SQSclient();
+
         //get the queue URL's for the local app
         localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
 
@@ -72,18 +77,15 @@ public class Manager {
         managerToWorkersQueueUrl = GeneralUtils.initSqs(MANAGER_TO_WORKERS_QUEUE_NAME, sqs);
         workersToManagerQueueUrl = GeneralUtils.initSqs(WORKERS_TO_MANAGER_QUEUE_NAME, sqs);
 
-        //init AWS clients
-        ec2 = new EC2Client();
-        s3 = new S3client();
-        sqs = new SQSclient();
-
         numOfActiveWorkers = 0;
         sizeOfCurrentInput = 0;
-        completedTasks = new ConcurrentHashMap<>();
+        completedSubTasksCounters = new ConcurrentHashMap<>();
         tasksResults = new ConcurrentHashMap<>();
         managerToLocalQueues = new ConcurrentHashMap<>();
 
         AtomicInteger shutdownCounter = new AtomicInteger(0);
+
+        resultExecutor = Executors.newFixedThreadPool(4);
         executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
         for(int i=0; i<NUM_OF_THREADS; i++) {
             executor.submit(() -> {
@@ -95,7 +97,7 @@ public class Manager {
             });
         }
 
-        while (shutdownCounter.get() != NUM_OF_THREADS || !completedTasks.isEmpty()){
+        while (shutdownCounter.get() != NUM_OF_THREADS || !completedSubTasksCounters.isEmpty()){
             //poll queue for results
             List<Message> messages = sqs.getMessages(workersToManagerQueueUrl, 5);
             for(Message m : messages){
@@ -121,17 +123,16 @@ public class Manager {
         }
 
         //add result to hashmap + update counter of completed tasks of localAppID
-        Integer new_count = completedTasks.get(localAppID) + 1;
-        completedTasks.put(localAppID,new_count);
+        Integer new_count = completedSubTasksCounters.get(localAppID) + 1;
+        completedSubTasksCounters.put(localAppID,new_count);
         tasksResults.get(localAppID).put(url, result);
         //check if now all subtasks of localAppID are done
         if(new_count == tasksResults.get(localAppID).size()){
             synchronized (sizeOfCurrentInput){
                 sizeOfCurrentInput -= tasksResults.get(localAppID).size();
             }
-            completedTasks.remove(localAppID); //delete counter, task is done
-            tasksResults.remove(localAppID); // delete sub tasks map
-            executor.submit(()->{
+            completedSubTasksCounters.remove(localAppID); //delete counter, task is done
+            resultExecutor.submit(()->{
                 try {
                     createSendSummaryFile(localAppID);
                 } catch (IOException e) {
@@ -169,7 +170,11 @@ public class Manager {
             System.out.println("Error in createSendSummaryFile: sqs.sendMessage");
             System.exit(1); // Fatal Error
         }
+        tasksResults.remove(localAppID); // delete sub tasks map
         managerToLocalQueues.remove(localAppID); // delete queue url from map
+        if(!new File(localAppID+"_result.txt").delete()){
+            System.out.println("Error in createSendSummaryFile: summary file deletion");
+        }
     }
 
     private static void handleMessage(int n, List<Message> messages) {
@@ -177,7 +182,7 @@ public class Manager {
             Message message = messages.get(0);
             String body = message.body();
             if(body.equals("terminate")){
-                executor.shutdown();
+                executor.shutdownNow();
                 if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
                     System.out.println("Error at deleting task message from localToManagerQueue");
                     System.exit(1); // Fatal Error
@@ -208,7 +213,7 @@ public class Manager {
         //send url tasks to workers
         sendTasks(localAppID, urlList);
         //delete task message from queue (we just sent all subtaks to the workers)
-        if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){     //TODO heavy task, maybe move deletion to before this function
+        if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){  //TODO heavy task, maybe move deletion to before this function
             System.out.println("Error at deleting task message from localToManagerQueue");
             System.exit(1); // Fatal Error
         }
@@ -217,9 +222,9 @@ public class Manager {
     //sends url tasks to workers
     private static void sendTasks(String LocalAppID, List<String> urlList) {
         Map<String, String> subTasksResult = new HashMap<>();
-        completedTasks.put(LocalAppID,0); //so far there are 0 completed subtasks(urls) of localAppID
+        completedSubTasksCounters.put(LocalAppID,0); //so far there are 0 completed subtasks(urls) of localAppID
         for (String url: urlList) {
-            subTasksResult.put(url, "");
+            subTasksResult.put(url, "####default####");
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
@@ -271,7 +276,6 @@ public class Manager {
     private static String createWorkerScript() {
         String userData = "";
         userData = userData + "#!/bin/bash\n";
-        userData = userData + "sudo apt install tesseract-ocr\n";
         userData = userData + "sudo mkdir /jars/\n";
         userData = userData + "sudo aws s3 cp s3://" + s3BucketName + "/jars/worker.jar /jars/\n";
         userData += String.format("sudo java -jar /jars/worker.jar %s %s", managerToWorkersQueueUrl, workersToManagerQueueUrl);
