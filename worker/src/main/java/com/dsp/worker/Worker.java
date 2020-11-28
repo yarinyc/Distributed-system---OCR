@@ -36,13 +36,12 @@ public class Worker {
 
         //create OCR engine
         tesseract = new Tesseract();
-        // TODO call tess.setDataPath() to point to your tesseract installation (/usr/share/tesseract-ocr/ for my Ubuntu 14.04)
-        // TODO check this is the correct path for tess after apt-get
         tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
 
         while(!Thread.interrupted()){
             List<Message> messages = sqs.getMessages(managerToWorkersQueueUrl, 1);
             for(Message m : messages){
+                generalUtils.logPrint("Handling task");
                 handleOcrTask(m,workersToManagerQueueUrl, managerToWorkersQueueUrl);
             }
         }
@@ -70,6 +69,7 @@ public class Worker {
             deleteMessageFromQueue(m, managerToWorkersQueueUrl);
             return;
         }
+        generalUtils.logPrint("Task finished successfully, sending result to manager");
         //send ocr result to manager
         HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
         attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
@@ -117,7 +117,7 @@ public class Worker {
             return tesseract.doOCR(new File(imagePath));
         }
         catch (TesseractException e) {
-            e.printStackTrace();
+            generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
             return null;
         }
     }
@@ -135,7 +135,7 @@ public class Worker {
             ImageIO.write(image, "png",new File(downloadFilePath) );
         } catch (IOException e) {
             generalUtils.logPrint("Error at downloadImage: broken link");
-            e.printStackTrace();
+            generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
             return "";
         }
         return downloadFilePath;

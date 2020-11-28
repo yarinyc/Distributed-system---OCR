@@ -5,7 +5,10 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 public class EC2Client {
@@ -38,7 +41,7 @@ public class EC2Client {
                 RunInstancesResponse response = ec2client.runInstances(runRequest);
                 return response.instances();
             } catch (Exception e) {
-                e.printStackTrace();
+                GeneralUtils.printStackTrace(e, generalUtils);
                 return null;
             }
     }
@@ -62,7 +65,7 @@ public class EC2Client {
                 nextToken = response.nextToken();
             } while (nextToken != null);
         } catch (Ec2Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
         }
         return instances;
     }
@@ -85,7 +88,7 @@ public class EC2Client {
                 nextToken = response.nextToken();
             } while (nextToken != null);
         } catch (Ec2Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
         }
         return count;
     }
@@ -104,7 +107,7 @@ public class EC2Client {
         try {
             ec2client.createTags(tagRequest);
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;
@@ -118,7 +121,7 @@ public class EC2Client {
         try {
             ec2client.terminateInstances(terminateRequest);
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;

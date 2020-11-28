@@ -8,7 +8,10 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.File;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -36,7 +39,7 @@ public class S3client {
         try {
             s3.createBucket(bucketRequest);
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;
@@ -53,7 +56,7 @@ public class S3client {
             generalUtils.logPrint("putting file in s3 bucket");
             s3.putObject(putRequest, RequestBody.fromFile(new File(inFilePath)));
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         generalUtils.logPrint("done putting file in s3 bucket");
@@ -67,7 +70,7 @@ public class S3client {
         try {
             s3.getObject(getRequest, ResponseTransformer.toFile(Paths.get(outFilePath)));
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;

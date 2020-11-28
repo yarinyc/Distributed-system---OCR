@@ -22,6 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.stream.Collectors;
 
 public class Manager {
 
@@ -45,11 +46,13 @@ public class Manager {
     //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
     //each localApp has it's own hashmap (Inner hashmap) of task results
     private static Map<String, Map<String, String>> tasksResults;
-    private static Map<String, Integer> completedSubTasksCounters;
+    private static Map<String, AtomicInteger> completedSubTasksCounters;
     private static Map<String, String> managerToLocalQueues;
 
     private static Integer numOfActiveWorkers;
     private static Integer sizeOfCurrentInput;
+    private static final Object lock = new Object();
+
     private static String arn;
     private static String ami;
     private static String s3BucketName;
@@ -72,7 +75,6 @@ public class Manager {
         sqs = new SQSClient();
 
         generalUtils.logPrint("Started manager process");
-
 
         //get the queue URL's for the local app
         localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
@@ -112,8 +114,7 @@ public class Manager {
             }
         }
 
-        //TODO terminate seq kill all ec2 and sqs
-
+        //TODO terminate seq: kill all ec2 and sqs
 
     }
 
@@ -130,13 +131,14 @@ public class Manager {
         }
 
         //add result to hashmap + update counter of completed tasks of localAppID
-        int new_count = completedSubTasksCounters.get(localAppID) + 1;
-        completedSubTasksCounters.put(localAppID,new_count);
         tasksResults.get(localAppID).put(url, result);
+        int new_count = completedSubTasksCounters.get(localAppID).incrementAndGet();
+        //completedSubTasksCounters.put(localAppID,new_count);
+
         //check if now all subtasks of localAppID are done
         if(new_count == tasksResults.get(localAppID).size()){
             generalUtils.logPrint("Completing task for local app ID: " + localAppID);
-            synchronized (sizeOfCurrentInput){
+            synchronized (lock){
                 sizeOfCurrentInput -= tasksResults.get(localAppID).size();
             }
             completedSubTasksCounters.remove(localAppID); //delete counter, task is done
@@ -144,14 +146,15 @@ public class Manager {
                 try {
                     createSendSummaryFile(localAppID);
                 } catch (IOException e) {
-                    e.printStackTrace();
+                    generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
                 }
             });
         }
+
         //delete message from queue
         List<Message> msgToDelete = new ArrayList<>();
         msgToDelete.add(m);
-        generalUtils.logPrint("Deleting message" + m.receiptHandle() + " from queue");
+        generalUtils.logPrint("Deleting message from workersToManagerQueueUrl");
         if(!sqs.deleteMessages(msgToDelete, workersToManagerQueueUrl)){
             generalUtils.logPrint("Error at deleting task message from workersToManagerQueue");
             System.exit(1); // Fatal Error
@@ -213,7 +216,9 @@ public class Manager {
             return;
         }
         List<String> urlList = parseInputFile(inputFilePath);
-        synchronized (sizeOfCurrentInput){
+        //filter any unwanted strings
+        //urlList = urlList.stream().filter( url-> !(url.equals("") || url.equals("\n"))).collect(Collectors.toList());
+        synchronized (lock){
             sizeOfCurrentInput+=urlList.size();
         }
         //check there is a sufficient number of workers
@@ -230,7 +235,7 @@ public class Manager {
     //sends url tasks to workers
     private static void sendTasks(String LocalAppID, List<String> urlList) {
         Map<String, String> subTasksResult = new HashMap<>();
-        completedSubTasksCounters.put(LocalAppID,0); //so far there are 0 completed subtasks(urls) of localAppID
+        completedSubTasksCounters.put(LocalAppID, new AtomicInteger(0)); //so far there are 0 completed subtasks(urls) of localAppID
         for (String url: urlList) {
             subTasksResult.put(url, "####default####");
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
@@ -247,7 +252,7 @@ public class Manager {
 
     // checks if there are enough workers running, if not creates them.
     private static void loadBalance(int n) {
-        synchronized (sizeOfCurrentInput){
+        synchronized (lock){
             int numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput/n)+1;
             numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
             if(numOfWorkersNeeded <= numOfActiveWorkers){
@@ -273,13 +278,10 @@ public class Manager {
             return Files.readAllLines(Paths.get(inputFilePath), StandardCharsets.UTF_8);
         }
         catch (IOException e) {
-            e.printStackTrace();
+            generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
             return Collections.emptyList();
         }
     }
-
-    // TODO sudo apt-get tesseract-ocr
-    // TODO sudo apt install libtesseract-dev https://medium.com/quantrium-tech/installing-tesseract-4-on-ubuntu-18-04-b6fcd0cbd78f
 
     private static String createWorkerScript() {
         String userData = "";

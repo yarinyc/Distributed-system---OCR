@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.List;
 
 public class LocalAppConfiguration {
@@ -32,7 +33,7 @@ public class LocalAppConfiguration {
         try {
             conf = Files.readAllLines(Paths.get("resources", "config.txt"), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            e.printStackTrace();
+            generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
             return;
         }
         if(conf.size() < 5 ){

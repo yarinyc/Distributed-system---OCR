@@ -11,6 +11,7 @@ import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -21,7 +22,7 @@ public class LocalApplication {
     private static EC2Client ec2;
     private static S3client s3;
     private static SQSClient sqs;
-    private static  GeneralUtils generalUtils;
+    private static GeneralUtils generalUtils;
     private static LocalAppConfiguration config;
     private static String s3BucketName = null;
     private static String localToManagerQueueUrl = null;
@@ -32,8 +33,6 @@ public class LocalApplication {
     public static void main(String[] args){
 
         generalUtils = new GeneralUtils();
-        generalUtils.logPrint("started LocalApplication");
-        System.exit(1);
 
         if(args.length < 3) {
             generalUtils.logPrint("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
@@ -85,7 +84,7 @@ public class LocalApplication {
             try {
                 TimeUnit.SECONDS.sleep(5);
             } catch (Exception e){
-                e.printStackTrace();
+                generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
                 System.exit(1);
             }
             isManagerDone = checkResponse();
@@ -175,14 +174,6 @@ public class LocalApplication {
 
         //check s3 and sqs services (bucket and 2 queues) are created, if not we create them
         initServices();
-        //manager node is not running
-
-        //short sleep to make sure s3 is ready with the jars
-//        try {
-//            TimeUnit.SECONDS.sleep(4);
-//        } catch (InterruptedException e) {
-//            e.printStackTrace();
-//        }
 
         List<Instance> instances = ec2.createEC2Instances(config.getAmi(), config.getAwsKeyPair(), 1, 1, createManagerScript(), config.getArn(), config.getInstanceType());
         String instanceId = instances.get(0).instanceId();

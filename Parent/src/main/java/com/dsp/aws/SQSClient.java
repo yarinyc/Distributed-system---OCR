@@ -5,6 +5,9 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -13,8 +16,8 @@ public class SQSClient {
 
     private static final Region REGION = Region.US_EAST_1;
 
-    private SqsClient sqs;
-    private GeneralUtils generalUtils;
+    private final SqsClient sqs;
+    private final GeneralUtils generalUtils;
 
     public SQSClient() {
         generalUtils = new GeneralUtils();
@@ -42,7 +45,7 @@ public class SQSClient {
                     .build();
             sqs.setQueueAttributes(setQueueAttributesRequest);
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;
@@ -77,7 +80,7 @@ public class SQSClient {
         try {
             sqs.sendMessage(send_msg_request);
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;
@@ -92,7 +95,7 @@ public class SQSClient {
             try {
                 sqs.deleteMessage(deleteMessageRequest);
             } catch (Exception e) {
-                e.printStackTrace();
+                GeneralUtils.printStackTrace(e, generalUtils);
                 return false;
             }
         }
@@ -108,7 +111,7 @@ public class SQSClient {
         try {
             sqs.changeMessageVisibility(changeMessageVisibilityRequest);
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;
@@ -124,7 +127,7 @@ public class SQSClient {
             GetQueueAttributesResponse getQueueAttributesResponse = sqs.getQueueAttributes(attributesRequest);
             return Integer.parseInt(getQueueAttributesResponse.attributes().get(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES));
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return -1;
         }
 
@@ -146,7 +149,7 @@ public class SQSClient {
 //            }
             sqs.deleteQueue(deleteQueueRequest);
         } catch (Exception e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e, generalUtils);
             return false;
         }
         return true;

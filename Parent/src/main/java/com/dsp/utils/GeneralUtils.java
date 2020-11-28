@@ -4,6 +4,8 @@ import com.dsp.aws.SQSClient;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -20,9 +22,7 @@ public class GeneralUtils {
 
     public GeneralUtils(){
         try {
-            if(!new File(LOG_FILE).createNewFile()){
-                System.out.println("In GeneralUtils: can't create file");
-            }
+            new File(LOG_FILE).createNewFile();
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -30,6 +30,13 @@ public class GeneralUtils {
 
     public static String toBase64(String data) {
         return new String(Base64.getEncoder().encode(data.getBytes(StandardCharsets.UTF_8)), StandardCharsets.UTF_8);
+    }
+
+    public static void printStackTrace(Exception e, GeneralUtils generalUtils) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        e.printStackTrace(pw);
+        generalUtils.logPrint(sw.toString() + "\n\tException Message: " + e.getMessage());
     }
 
     public static String getUniqueID() {
