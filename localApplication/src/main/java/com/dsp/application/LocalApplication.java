@@ -33,6 +33,7 @@ public class LocalApplication {
 
         generalUtils = new GeneralUtils();
         generalUtils.logPrint("started LocalApplication");
+        System.exit(1);
 
         if(args.length < 3) {
             generalUtils.logPrint("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
@@ -70,7 +71,7 @@ public class LocalApplication {
         String localAppID = GeneralUtils.getUniqueID();
 
         // init an sqs queue for manager to local communication
-        managerToLocalQueueUrl = GeneralUtils.initSqs("sqs_"+localAppID, sqs);
+        managerToLocalQueueUrl = GeneralUtils.initSqs("managerToLocalQueueUrl_"+localAppID, sqs);
 
         //if upload to s3 was successful, sends message to manager
         sendTask(inputFileName, localAppID);

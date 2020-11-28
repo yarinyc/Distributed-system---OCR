@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit;
 public class GeneralUtils {
 
     public static final String VISIBILITY = "30";
-    public static final String LOG_FILE = "debug.log";
+    public static final String LOG_FILE = "jars/debug.log";
 
     public GeneralUtils(){
         try {
