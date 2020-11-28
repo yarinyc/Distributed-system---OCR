@@ -2,9 +2,11 @@ package com.dsp.application;
 
 import com.dsp.aws.EC2Client;
 import com.dsp.aws.S3client;
-import com.dsp.aws.SQSclient;
+import com.dsp.aws.SQSClient;
 import com.dsp.utils.GeneralUtils;
-import software.amazon.awssdk.services.ec2.model.*;
+import software.amazon.awssdk.services.ec2.model.Filter;
+import software.amazon.awssdk.services.ec2.model.Instance;
+import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
@@ -18,7 +20,8 @@ public class LocalApplication {
     private static boolean shouldTerminate = false;
     private static EC2Client ec2;
     private static S3client s3;
-    private static SQSclient sqs;
+    private static SQSClient sqs;
+    private static  GeneralUtils generalUtils;
     private static LocalAppConfiguration config;
     private static String s3BucketName = null;
     private static String localToManagerQueueUrl = null;
@@ -28,10 +31,11 @@ public class LocalApplication {
 
     public static void main(String[] args){
 
-        System.out.println("started LocalApplication");
+        generalUtils = new GeneralUtils();
+        generalUtils.logPrint("started LocalApplication");
 
         if(args.length < 3) {
-            System.out.println("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
+            generalUtils.logPrint("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
             System.exit(1);
         }
 
@@ -46,15 +50,21 @@ public class LocalApplication {
         //init AWS clients
         ec2 = new EC2Client();
         s3 = new S3client();
-        sqs = new SQSclient();
+        sqs = new SQSClient();
 
         //init configuration object
         config = new LocalAppConfiguration();
 
+        s3BucketName = config.getS3BucketName();
+
         //check if manager node is up, if not we will start it and all relevant aws services
-        System.out.println("Initializing AWS services...");
+        generalUtils.logPrint("Initializing AWS services...");
         initManager();
-        System.out.println("Done Initializing AWS services");
+        generalUtils.logPrint("Done Initializing AWS services");
+
+        if(localToManagerQueueUrl == null){
+            localToManagerQueueUrl = sqs.getQueueUrl(config.getLocalToManagerQueueName());
+        }
 
         //upload input file to s3 + send message to manager
         String localAppID = GeneralUtils.getUniqueID();
@@ -66,11 +76,11 @@ public class LocalApplication {
         sendTask(inputFileName, localAppID);
 
         //poll managerToLocal queue for response
+        System.out.print("Waiting for response");
         while(!isManagerDone){
             //once there is a response, the responseKey field will be different from null
             //we will send it as an attribute in the response message from the manager and change
             //the responseKey field value in checkResponse
-            System.out.println("Waiting for response");
             try {
                 TimeUnit.SECONDS.sleep(5);
             } catch (Exception e){
@@ -78,16 +88,17 @@ public class LocalApplication {
                 System.exit(1);
             }
             isManagerDone = checkResponse();
+            System.out.print(".");
         }
 
-        System.out.println("Receiving response from manager");
+        generalUtils.logPrint("\nReceiving response from manager");
 
         //get summary file from s3 bucket and create output html file
         if(s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
             createHtml(outputFileName);
         }
         else{
-            System.out.println("Error at downloading summary file from s3 bucket");
+            generalUtils.logPrint("Error at downloading summary file from s3 bucket");
             System.exit(1);
         }
 
@@ -95,16 +106,16 @@ public class LocalApplication {
         if(shouldTerminate){
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             if(!sqs.sendMessage(localToManagerQueueUrl,"terminate",attributesMap)) {
-                System.out.println("Error at sending terminate message to manager");
+                generalUtils.logPrint("Error at sending terminate message to manager");
                 //System.exit(1);
             }
         }
 
         if(!sqs.deleteQueue(managerToLocalQueueUrl)){
-            System.out.println("Error at deleting sqs queue managerToLocalQueueUrl");
+            generalUtils.logPrint("Error at deleting sqs queue managerToLocalQueueUrl");
         }
 
-        System.out.println("Exiting local application");
+        generalUtils.logPrint("Exiting local application");
     }
 
     private static void sendTask(String inputFileName, String s3InputFileKey) {
@@ -115,12 +126,12 @@ public class LocalApplication {
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
             attributesMap.put("managerToLocalQueueUrl", MessageAttributeValue.builder().dataType("String").stringValue(managerToLocalQueueUrl).build());
             if(!sqs.sendMessage(localToManagerQueueUrl, s3InputFileKey,attributesMap)) {
-                System.out.println("Error at sending task message to manager");
+                generalUtils.logPrint("Error at sending task message to manager");
                 System.exit(1);
             }
         }
         else{
-            System.out.println("Error at uploading input file to s3 bucket");
+            generalUtils.logPrint("Error at uploading input file to s3 bucket");
             System.exit(1);
         }
     }
@@ -128,9 +139,9 @@ public class LocalApplication {
     //create final html output file
     private static void createHtml(String outputFileName) {
 //        if(!s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
-//            System.out.println("Error in createHtml");
+//            generalUtils.logPrint("Error in createHtml");
 //        }
-        System.out.println("creating HTML");
+        generalUtils.logPrint("creating HTML to " + outputFileName);
         //TODO create the actual html
 
     }
@@ -180,20 +191,23 @@ public class LocalApplication {
     //init AWS services: sqs and s3 (only if needed)
     private static void initServices() {
         //init for s3 bucket
-        s3BucketName = config.getS3BucketName();
         if(!s3.getAllBucketNames().contains(s3BucketName)){
-            System.out.println("Creating S3 bucket");
-            s3.createBucket(s3BucketName);
+            generalUtils.logPrint("Creating S3 bucket");
 
-            System.out.println("uploading manager jar file...");
-            if(!s3.putObject(config.getS3BucketName(), "jars/manager.jar", Paths.get("jars","manager.jar").toString())){
-                System.out.println("Error in local app: s3.putObject manager.jar");
+            if(!s3.createBucket(s3BucketName)){
+                generalUtils.logPrint("Error in local app: s3.createBucket");
                 System.exit(1);
             }
 
-            System.out.println("uploading worker jar file...");
+            generalUtils.logPrint("uploading manager jar file...");
+            if(!s3.putObject(config.getS3BucketName(), "jars/manager.jar", Paths.get("jars","manager.jar").toString())){
+                generalUtils.logPrint("Error in local app: s3.putObject manager.jar");
+                System.exit(1);
+            }
+
+            generalUtils.logPrint("uploading worker jar file...");
             if(!s3.putObject(config.getS3BucketName(), "jars/worker.jar", Paths.get("jars","worker.jar").toString())){
-                System.out.println("Error in local app: s3.putObject worker.jar");
+                generalUtils.logPrint("Error in local app: s3.putObject worker.jar");
                 System.exit(1);
             }
         }

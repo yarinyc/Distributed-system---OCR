@@ -1,5 +1,6 @@
 package com.dsp.aws;
 
+import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.regions.Region;
@@ -15,8 +16,10 @@ public class S3client {
 
     private static final Region REGION = Region.US_EAST_1;
     private S3Client s3;
+    private GeneralUtils generalUtils;
 
     public S3client() {
+        generalUtils = new GeneralUtils();
         s3 = S3Client
             .builder()
             .region(REGION)
@@ -47,13 +50,13 @@ public class S3client {
                                     .bucket(bucketName).key(bucketKey)
                                     .build();
         try {
-            System.out.println("putting file in s3 bucket");
+            generalUtils.logPrint("putting file in s3 bucket");
             s3.putObject(putRequest, RequestBody.fromFile(new File(inFilePath)));
         } catch (Exception e) {
             e.printStackTrace();
             return false;
         }
-        System.out.println("done putting file in s3 bucket");
+        generalUtils.logPrint("done putting file in s3 bucket");
         return true;
     }
 
@@ -75,7 +78,7 @@ public class S3client {
         return listBucketsResponse
                 .buckets()
                 .stream()
-                .map(x-> x.name())
+                .map(Bucket::name)
                 .collect(Collectors.toList());
     }
 }

@@ -15,12 +15,13 @@ public class LocalAppConfiguration {
     private String localToManagerQueueName;
     private String arn;
     private String awsKeyPair;
-
     private InstanceType instanceType;
-
     private String ami;
 
+    private GeneralUtils generalUtils;
+
     public LocalAppConfiguration() {
+        generalUtils = new GeneralUtils();
         instanceType = InstanceType.T2_MICRO;
         readConfigFile();
     }
@@ -35,7 +36,7 @@ public class LocalAppConfiguration {
             return;
         }
         if(conf.size() < 5 ){
-            System.out.println("Error in readConfigFile: bad config file");
+            generalUtils.logPrint("Error in readConfigFile: bad config file");
             System.exit(1);
         }
         s3BucketName = conf.get(0);

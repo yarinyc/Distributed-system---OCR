@@ -12,19 +12,16 @@ import java.util.*;
 import java.util.List;
 import javax.imageio.ImageIO;
 
-import com.dsp.aws.EC2Client;
-import com.dsp.aws.S3client;
-import com.dsp.aws.SQSclient;
+import com.dsp.aws.SQSClient;
 
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
 
 public class Worker {
-    private static EC2Client ec2;
-    private static S3client s3;
-    private static SQSclient sqs;
+    private static SQSClient sqs;
     private static Tesseract tesseract;
+    private static GeneralUtils generalUtils;
 
     public static void main(String[] args) {
 
@@ -32,10 +29,10 @@ public class Worker {
         String managerToWorkersQueueUrl = args[0];
         String workersToManagerQueueUrl = args[1];
 
+        generalUtils = new GeneralUtils();
+
         //init AWS clients
-        ec2 = new EC2Client();
-        s3 = new S3client();
-        sqs = new SQSclient();
+        sqs = new SQSClient();
 
         //create OCR engine
         tesseract = new Tesseract();
@@ -49,7 +46,7 @@ public class Worker {
                 handleOcrTask(m,workersToManagerQueueUrl, managerToWorkersQueueUrl);
             }
         }
-        System.out.println("Worker finished");
+        generalUtils.logPrint("Worker finished");
     }
 
     //handle OCR Task
@@ -60,7 +57,7 @@ public class Worker {
         //download image
         String imagePath = downloadImage(inputUrl);
         if (imagePath.equals("")) {
-            System.out.println("Error: Image not downloaded.... continuing to next ocr task, URL: " +  inputUrl);
+            generalUtils.logPrint("Error: Image not downloaded.... continuing to next ocr task, URL: " +  inputUrl);
             sendException(workersToManagerQueueUrl, localAppID, inputUrl, "Image download error");
             deleteMessageFromQueue(m, managerToWorkersQueueUrl);
             return;
@@ -68,7 +65,7 @@ public class Worker {
         //apply ocr on the image
         String ocrResult = applyOcr(imagePath, tesseract);
         if(ocrResult == null){
-            System.out.println("Error during OCR operation.... continuing to next ocr task, URL: "+ inputUrl);
+            generalUtils.logPrint("Error during OCR operation.... continuing to next ocr task, URL: "+ inputUrl);
             sendException(workersToManagerQueueUrl, localAppID, inputUrl, "OCR operation error");
             deleteMessageFromQueue(m, managerToWorkersQueueUrl);
             return;
@@ -80,7 +77,7 @@ public class Worker {
         attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(localAppID).build());
         attributesMap.put("Url", MessageAttributeValue.builder().dataType("String").stringValue(inputUrl).build());
         if(!sqs.sendMessage(workersToManagerQueueUrl, ocrResult, attributesMap)) {
-            System.out.println("Error at sending OCR task result to manager, URL: " + inputUrl);
+            generalUtils.logPrint("Error at sending OCR task result to manager, URL: " + inputUrl);
             System.exit(1); // Fatal Error
         }
 
@@ -88,7 +85,7 @@ public class Worker {
         deleteMessageFromQueue(m, managerToWorkersQueueUrl);
 
         if(!new File(imagePath).delete()){
-            System.out.println("Image can't be deleted");
+            generalUtils.logPrint("Image can't be deleted");
         }
     }
 
@@ -96,7 +93,7 @@ public class Worker {
         List<Message> msgToDelete = new ArrayList<>();
         msgToDelete.add(m);
         if(!sqs.deleteMessages(msgToDelete, managerToWorkersQueueUrl)){
-            System.out.println("Error at deleting task message from managerToWorkersQueue");
+            generalUtils.logPrint("Error at deleting task message from managerToWorkersQueue");
             System.exit(1); // Fatal Error
         }
     }
@@ -110,7 +107,7 @@ public class Worker {
         attributesMap.put("Url", MessageAttributeValue.builder().dataType("String").stringValue(inputUrl).build());
         attributesMap.put("ExceptionSummary", MessageAttributeValue.builder().dataType("String").stringValue(errorMessage).build());
         if (!sqs.sendMessage(workersToManagerQueueUrl, "WORKER EXCEPTION", attributesMap)) {
-            System.out.println("Error at sending worker exception to manager");
+            generalUtils.logPrint("Error at sending worker exception to manager");
         }
     }
 
@@ -128,17 +125,16 @@ public class Worker {
     //downloads image from url
     private static String downloadImage(String urlInput) {
         String downloadFilePath = GeneralUtils.getUniqueID() + "__Image.png";
-        BufferedImage image = null;
         try {
             URL url = new URL(urlInput);
-            image = ImageIO.read(url);
+            BufferedImage image = ImageIO.read(url);
             if(image == null){
-                System.out.println("Error at downloadImage: image can't be downloaded");
+                generalUtils.logPrint("Error at downloadImage: image can't be downloaded");
                 return "";
             }
             ImageIO.write(image, "png",new File(downloadFilePath) );
         } catch (IOException e) {
-            System.out.println("Error at downloadImage: broken link");
+            generalUtils.logPrint("Error at downloadImage: broken link");
             e.printStackTrace();
             return "";
         }
@@ -157,7 +153,7 @@ public class Worker {
 //            return downloadFilePath;
 //        }
 //        catch (IOException e){
-//            System.out.println("Error at creating url object");
+//            generalUtils.logPrint("Error at creating url object");
 //            return "";
 //        }
     }

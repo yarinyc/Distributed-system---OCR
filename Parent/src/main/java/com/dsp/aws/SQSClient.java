@@ -1,5 +1,6 @@
 package com.dsp.aws;
 
+import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
@@ -8,13 +9,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class SQSclient {
+public class SQSClient {
 
     private static final Region REGION = Region.US_EAST_1;
 
     private SqsClient sqs;
+    private GeneralUtils generalUtils;
 
-    public SQSclient() {
+    public SQSClient() {
+        generalUtils = new GeneralUtils();
         sqs = SqsClient
             .builder()
             .region(REGION)

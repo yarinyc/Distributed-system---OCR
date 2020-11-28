@@ -2,7 +2,7 @@ package com.dsp.manager;
 
 import com.dsp.aws.EC2Client;
 import com.dsp.aws.S3client;
-import com.dsp.aws.SQSclient;
+import com.dsp.aws.SQSClient;
 import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.core.util.json.JacksonUtils;
 import software.amazon.awssdk.services.ec2.model.Instance;
@@ -32,7 +32,8 @@ public class Manager {
 
     private static EC2Client ec2;
     private static S3client s3;
-    private static SQSclient sqs;
+    private static SQSClient sqs;
+    private static GeneralUtils generalUtils;
 
     private static ExecutorService executor;
     private static ExecutorService resultExecutor;
@@ -55,7 +56,6 @@ public class Manager {
     private static String keyName;
 
     public static void main(String[] args) {
-        System.out.println("Started manager process");
 
         //get data from args
         int n = Integer.parseInt(args[0]);
@@ -66,9 +66,13 @@ public class Manager {
         keyName = args[5];
 
         //init AWS clients
+        generalUtils = new GeneralUtils();
         ec2 = new EC2Client();
         s3 = new S3client();
-        sqs = new SQSclient();
+        sqs = new SQSClient();
+
+        generalUtils.logPrint("Started manager process");
+
 
         //get the queue URL's for the local app
         localToManagerQueueUrl = sqs.getQueueUrl(localToManagerQueueName);
@@ -87,6 +91,7 @@ public class Manager {
 
         resultExecutor = Executors.newFixedThreadPool(4);
         executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
+        //start all localToManagerQueue listeners
         for(int i=0; i<NUM_OF_THREADS; i++) {
             executor.submit(() -> {
                 while (!Thread.interrupted()) {
@@ -102,6 +107,7 @@ public class Manager {
             List<Message> messages = sqs.getMessages(workersToManagerQueueUrl, 5);
             for(Message m : messages){
                 //get all needed information and the result
+                generalUtils.logPrint("Handling result message");
                 handleResultMessage(m);
             }
         }
@@ -120,14 +126,16 @@ public class Manager {
         //check if an exception occurred in worker node
         if(result.equals("WORKER EXCEPTION")){
             result = attributes.get("ExceptionSummary").stringValue();
+            generalUtils.logPrint("Received WORKER EXCEPTION");
         }
 
         //add result to hashmap + update counter of completed tasks of localAppID
-        Integer new_count = completedSubTasksCounters.get(localAppID) + 1;
+        int new_count = completedSubTasksCounters.get(localAppID) + 1;
         completedSubTasksCounters.put(localAppID,new_count);
         tasksResults.get(localAppID).put(url, result);
         //check if now all subtasks of localAppID are done
         if(new_count == tasksResults.get(localAppID).size()){
+            generalUtils.logPrint("Completing task for local app ID: " + localAppID);
             synchronized (sizeOfCurrentInput){
                 sizeOfCurrentInput -= tasksResults.get(localAppID).size();
             }
@@ -139,13 +147,13 @@ public class Manager {
                     e.printStackTrace();
                 }
             });
-
         }
         //delete message from queue
         List<Message> msgToDelete = new ArrayList<>();
         msgToDelete.add(m);
+        generalUtils.logPrint("Deleting message" + m.receiptHandle() + " from queue");
         if(!sqs.deleteMessages(msgToDelete, workersToManagerQueueUrl)){
-            System.out.println("Error at deleting task message from workersToManagerQueue");
+            generalUtils.logPrint("Error at deleting task message from workersToManagerQueue");
             System.exit(1); // Fatal Error
         }
     }
@@ -160,20 +168,20 @@ public class Manager {
 
         String responseKey = localAppID + "_result";
         if(!s3.putObject(s3BucketName, responseKey, localAppID+"_result.txt")){
-            System.out.println("Error in createSendSummaryFile: s3.putObject");
+            generalUtils.logPrint("Error in createSendSummaryFile: s3.putObject");
         }
         String queueUrl = managerToLocalQueues.get(localAppID);
         HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
         attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
         attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("LocalApp").build());
         if(!sqs.sendMessage(queueUrl, responseKey, attributesMap)){
-            System.out.println("Error in createSendSummaryFile: sqs.sendMessage");
+            generalUtils.logPrint("Error in createSendSummaryFile: sqs.sendMessage");
             System.exit(1); // Fatal Error
         }
         tasksResults.remove(localAppID); // delete sub tasks map
         managerToLocalQueues.remove(localAppID); // delete queue url from map
         if(!new File(localAppID+"_result.txt").delete()){
-            System.out.println("Error in createSendSummaryFile: summary file deletion");
+            generalUtils.logPrint("Error in createSendSummaryFile: summary file deletion");
         }
     }
 
@@ -184,7 +192,7 @@ public class Manager {
             if(body.equals("terminate")){
                 executor.shutdownNow();
                 if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
-                    System.out.println("Error at deleting task message from localToManagerQueue");
+                    generalUtils.logPrint("Error at deleting task message from localToManagerQueue");
                     System.exit(1); // Fatal Error
                 }
             }
@@ -201,7 +209,7 @@ public class Manager {
     private static void distributeTasks(int n, List<Message> messages, String localAppID) {
         String inputFilePath = localAppID +"_input.txt";
         if(!s3.getObject(s3BucketName, localAppID, inputFilePath)) { // body is the key in s3
-            System.out.println("Error downloading input file from s3");
+            generalUtils.logPrint("Error downloading input file from s3");
             return;
         }
         List<String> urlList = parseInputFile(inputFilePath);
@@ -212,9 +220,9 @@ public class Manager {
         loadBalance(n);
         //send url tasks to workers
         sendTasks(localAppID, urlList);
-        //delete task message from queue (we just sent all subtaks to the workers)
+        //delete task message from queue (we just sent all subtasks to the workers)
         if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){  //TODO heavy task, maybe move deletion to before this function
-            System.out.println("Error at deleting task message from localToManagerQueue");
+            generalUtils.logPrint("Error at deleting task message from localToManagerQueue");
             System.exit(1); // Fatal Error
         }
     }
@@ -230,7 +238,7 @@ public class Manager {
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
             attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(LocalAppID).build());
             if(!sqs.sendMessage(managerToWorkersQueueUrl, url, attributesMap)) {
-                System.out.println("Error at sending task message to worker");
+                generalUtils.logPrint("Error at sending task message to worker");
                 System.exit(1); // Fatal Error
             }
         }
@@ -252,7 +260,7 @@ public class Manager {
                 numOfActiveWorkers = numOfWorkersNeeded;
                 for (Instance instance : instances) {
                     if(!ec2.createTag("Name", "worker", instance.instanceId())){
-                        System.out.println("Error in manager: loadBalance ec2.createTag with instnceId: " + instance.instanceId());
+                        generalUtils.logPrint("Error in manager: loadBalance ec2.createTag with instance Id: " + instance.instanceId());
                     }
                 }
             }

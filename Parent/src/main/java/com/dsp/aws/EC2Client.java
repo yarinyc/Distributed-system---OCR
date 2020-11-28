@@ -1,5 +1,6 @@
 package com.dsp.aws;
 
+import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
@@ -11,8 +12,10 @@ public class EC2Client {
 
     private static final Region REGION = Region.US_EAST_1;
     private Ec2Client ec2client;
+    private GeneralUtils generalUtils;
 
     public EC2Client() {
+        generalUtils = new GeneralUtils();
         this.ec2client = Ec2Client
                         .builder()
                         .region(REGION)
@@ -20,7 +23,7 @@ public class EC2Client {
     }
 
     // return a list of all ec2 instances created.
-    // keyname: private key pair of AWS EC2. arn: (amazon resource name)-predefined IAM Role.
+    // keyName: private key pair of AWS EC2. arn: (amazon resource name)-predefined IAM Role.
     public List<Instance> createEC2Instances(String amiId, String keyName, int minCount, int maxCount, String userData, String arn, InstanceType instanceType) {
             RunInstancesRequest runRequest = RunInstancesRequest.builder()
                     .imageId(amiId)
