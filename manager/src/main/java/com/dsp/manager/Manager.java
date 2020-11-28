@@ -221,6 +221,9 @@ public class Manager {
         synchronized (lock){
             sizeOfCurrentInput+=urlList.size();
         }
+
+        generalUtils.logPrint("Distributing " + sizeOfCurrentInput + "subtasks to workers queue");
+
         //check there is a sufficient number of workers
         loadBalance(n);
         //send url tasks to workers
@@ -254,6 +257,7 @@ public class Manager {
     private static void loadBalance(int n) {
         synchronized (lock){
             int numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput/n)+1;
+            numOfWorkersNeeded = Math.max(numOfWorkersNeeded, 1); // in case (n > inputSize)
             numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
             if(numOfWorkersNeeded <= numOfActiveWorkers){
                 return;
