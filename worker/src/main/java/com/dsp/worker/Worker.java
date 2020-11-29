@@ -70,6 +70,9 @@ public class Worker {
             return;
         }
         generalUtils.logPrint("Task finished successfully, sending result to manager");
+        generalUtils.logPrint("URL: "+ inputUrl);
+        generalUtils.logPrint("RESULT: "+ ocrResult);
+
         //send ocr result to manager
         HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
         attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());

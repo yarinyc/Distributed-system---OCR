@@ -4,12 +4,20 @@ import com.dsp.aws.EC2Client;
 import com.dsp.aws.S3client;
 import com.dsp.aws.SQSClient;
 import com.dsp.utils.GeneralUtils;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import software.amazon.awssdk.core.util.json.JacksonUtils;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileWriter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -29,10 +37,45 @@ public class LocalApplication {
     private static String managerToLocalQueueUrl = null;
     private static String responseKey = null;
     private static int n;
+    private static ObjectMapper mapper;
 
     public static void main(String[] args){
 
         generalUtils = new GeneralUtils();
+        mapper = new ObjectMapper();
+
+//        HashMap<String,String> map= new HashMap<>();
+//        map.put("key1","value1");
+//        map.put("key2","value2");
+//        map.put("key3","value3");
+//
+//
+//        FileWriter fstream = null;
+//        try {
+//            fstream = new FileWriter(42+"_result.txt");
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+//        BufferedWriter out = new BufferedWriter(fstream);
+//
+//
+//        String jsonResult = JacksonUtils.toJsonString(map);
+//        generalUtils.logPrint("JSON STRING: " + jsonResult);
+//        try {
+//            out.write(jsonResult);
+//            out.flush();
+//            out.close();
+//        } catch (IOException e) {
+//            e.printStackTrace();
+//        }
+
+//        List<String> output = parseInputFile(42+"_result.txt");
+//        generalUtils.logPrint("NUMBER OF JSONS: " + output.size());
+//        for(String s : output){
+//            generalUtils.logPrint(42+ "_result.txt OUTPUT: " + s);
+//        }
+//        System.out.println("done");
+//        System.exit(0);
 
         if(args.length < 3) {
             generalUtils.logPrint("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
@@ -46,6 +89,10 @@ public class LocalApplication {
         if(args.length == 4 && args[3].equals("terminate")) {
             shouldTerminate = true;
         }
+
+//        File f = new File(inputFileName);
+//
+//        System.exit(2);
 
         //init AWS clients
         ec2 = new EC2Client();
@@ -95,7 +142,7 @@ public class LocalApplication {
 
         //get summary file from s3 bucket and create output html file
         if(s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
-            createHtml(outputFileName);
+            createHtml(outputFileName+"_temp");
         }
         else{
             generalUtils.logPrint("Error at downloading summary file from s3 bucket");
@@ -138,10 +185,16 @@ public class LocalApplication {
 
     //create final html output file
     private static void createHtml(String outputFileName) {
-//        if(!s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
-//            generalUtils.logPrint("Error in createHtml");
-//        }
         generalUtils.logPrint("creating HTML to " + outputFileName);
+        try {
+            List<String> mapJsonString = Files.readAllLines(Paths.get(outputFileName), StandardCharsets.UTF_8);
+            //convert JSON string to Map
+            HashMap<String, String> map = mapper.readValue(mapJsonString.get(0), HashMap.class);
+
+//            System.out.println(map);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
         //TODO create the actual html
 
     }
@@ -204,6 +257,7 @@ public class LocalApplication {
             }
         }
         //init local to manager sqs queue
+        generalUtils.logPrint("creating localToManagerQueue");
         localToManagerQueueUrl = GeneralUtils.initSqs(config.getLocalToManagerQueueName(), sqs);
     }
 

@@ -142,6 +142,7 @@ public class Manager {
                 sizeOfCurrentInput -= tasksResults.get(localAppID).size();
             }
             completedSubTasksCounters.remove(localAppID); //delete counter, task is done
+            generalUtils.logPrint("Submitting task result to resultExecutor" + localAppID);
             resultExecutor.submit(()->{
                 try {
                     createSendSummaryFile(localAppID);
@@ -163,11 +164,25 @@ public class Manager {
 
     //Create summary file of all url subtasks results in json format and send to the local application
     private static void createSendSummaryFile(String localAppID) throws IOException {
-        FileWriter fstream = new FileWriter(localAppID+"_result.txt");
+        FileWriter fstream = null;
+        try {
+            fstream = new FileWriter(localAppID+"_result.txt");
+        } catch (IOException e) {
+            e.printStackTrace();
+            generalUtils.logPrint("Error in createSendSummaryFile: FileWriter(localAppID+\"_result.txt\")");
+        }
         BufferedWriter out = new BufferedWriter(fstream);
 
         String jsonResult = JacksonUtils.toJsonString(tasksResults.get(localAppID));
-        out.write(jsonResult);
+        generalUtils.logPrint("JSON STRING: " + jsonResult);
+        try {
+            out.write(jsonResult);
+            out.flush();
+            out.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+            generalUtils.logPrint("Error in createSendSummaryFile: out.write(jsonResult)" );
+        }
 
         String responseKey = localAppID + "_result";
         if(!s3.putObject(s3BucketName, responseKey, localAppID+"_result.txt")){
@@ -240,7 +255,7 @@ public class Manager {
         Map<String, String> subTasksResult = new HashMap<>();
         completedSubTasksCounters.put(LocalAppID, new AtomicInteger(0)); //so far there are 0 completed subtasks(urls) of localAppID
         for (String url: urlList) {
-            subTasksResult.put(url, "####default####");
+            subTasksResult.put(url, "####default-omer-yarin####");
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
