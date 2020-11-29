@@ -41,41 +41,10 @@ public class LocalApplication {
 
     public static void main(String[] args){
 
+        //init generalUtils object
         generalUtils = new GeneralUtils();
+        //mapper object to convert jackson file to java hashmap
         mapper = new ObjectMapper();
-
-//        HashMap<String,String> map= new HashMap<>();
-//        map.put("key1","value1");
-//        map.put("key2","value2");
-//        map.put("key3","value3");
-//
-//
-//        FileWriter fstream = null;
-//        try {
-//            fstream = new FileWriter(42+"_result.txt");
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        }
-//        BufferedWriter out = new BufferedWriter(fstream);
-//
-//
-//        String jsonResult = JacksonUtils.toJsonString(map);
-//        generalUtils.logPrint("JSON STRING: " + jsonResult);
-//        try {
-//            out.write(jsonResult);
-//            out.flush();
-//            out.close();
-//        } catch (IOException e) {
-//            e.printStackTrace();
-//        }
-
-//        List<String> output = parseInputFile(42+"_result.txt");
-//        generalUtils.logPrint("NUMBER OF JSONS: " + output.size());
-//        for(String s : output){
-//            generalUtils.logPrint(42+ "_result.txt OUTPUT: " + s);
-//        }
-//        System.out.println("done");
-//        System.exit(0);
 
         if(args.length < 3) {
             generalUtils.logPrint("Error: At least 3 arguments needed - inputFileName, outputFileName, n");
@@ -89,10 +58,6 @@ public class LocalApplication {
         if(args.length == 4 && args[3].equals("terminate")) {
             shouldTerminate = true;
         }
-
-//        File f = new File(inputFileName);
-//
-//        System.exit(2);
 
         //init AWS clients
         ec2 = new EC2Client();
@@ -142,7 +107,7 @@ public class LocalApplication {
 
         //get summary file from s3 bucket and create output html file
         if(s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
-            createHtml(outputFileName+"_temp");
+            createHtml(outputFileName);
         }
         else{
             generalUtils.logPrint("Error at downloading summary file from s3 bucket");
@@ -187,15 +152,53 @@ public class LocalApplication {
     private static void createHtml(String outputFileName) {
         generalUtils.logPrint("creating HTML to " + outputFileName);
         try {
-            List<String> mapJsonString = Files.readAllLines(Paths.get(outputFileName), StandardCharsets.UTF_8);
+            List<String> mapJsonString = Files.readAllLines(Paths.get(outputFileName+"_temp"), StandardCharsets.UTF_8);
             //convert JSON string to Map
-            HashMap<String, String> map = mapper.readValue(mapJsonString.get(0), HashMap.class);
+            HashMap<String, String> ocrResultsMap = mapper.readValue(mapJsonString.get(0), HashMap.class);
 
-//            System.out.println(map);
+            String ocrResults = "";
+
+            for(HashMap.Entry<String, String> entry : ocrResultsMap.entrySet())
+            {
+                System.out.println("Key : "+entry.getKey()+"   Value : "+entry.getValue());
+                ocrResults+=
+                "\t<p>\n" +
+                        "\t\t<img src=\""+entry.getKey() +"\"><br/>\n" +
+                        "\t\t"+entry.getValue()+"\n"+
+                "\t</p>\n";
+            }
+
+            String htmlOutput =
+            "<html>\n" +
+            "<title>OCR</title>\n" +
+            "<body>\n" + ocrResults +
+            "</body>\n" +
+            "<html>";
+
+            FileWriter fstream = null;
+            try {
+                fstream = new FileWriter(outputFileName+".html");
+            } catch (IOException e) {
+                e.printStackTrace();
+                generalUtils.logPrint("Error in createHtml: FileWriter(outputFileName.html)");
+            }
+            BufferedWriter out = new BufferedWriter(fstream);
+            try {
+                out.write(htmlOutput);
+                out.flush();
+                out.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+                generalUtils.logPrint("Error in createHtml: out.write(htmlOutput)" );
+            }
+
         } catch (IOException e) {
             e.printStackTrace();
+            System.out.println("Error at creating html file");
+            System.exit(1);
         }
-        //TODO create the actual html
+
+
 
     }
 
