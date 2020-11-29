@@ -39,6 +39,21 @@ public class LocalApplication {
     private static int n;
     private static ObjectMapper mapper;
 
+
+    // TODO delete temp file from dir after html creation
+    // TODO create this temp file in jars dir
+    // TODO termination seq in manager
+    // TODO in worker send result in base64 maybe will fix the no '\n' output
+    // TODO check the photo that doesn't change the default value
+    // TODO write detailed README.md
+    // TODO check how to encrypt credentials
+    // TODO get rid of all warnings
+
+    // TODO run multiple test cases:
+    // TODO -> 1 worker, 3 workers, 8 workers, long input, short input, ->
+    // TODO -> with/without jar upload, * all cases above with multiple local apps * ->
+    // TODO ->
+
     public static void main(String[] args){
 
         //init generalUtils object

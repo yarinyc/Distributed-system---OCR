@@ -168,7 +168,7 @@ public class Manager {
         try {
             fstream = new FileWriter(localAppID+"_result.txt");
         } catch (IOException e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e,generalUtils);
             generalUtils.logPrint("Error in createSendSummaryFile: FileWriter(localAppID+\"_result.txt\")");
         }
         BufferedWriter out = new BufferedWriter(fstream);
@@ -180,7 +180,7 @@ public class Manager {
             out.flush();
             out.close();
         } catch (IOException e) {
-            e.printStackTrace();
+            GeneralUtils.printStackTrace(e,generalUtils);
             generalUtils.logPrint("Error in createSendSummaryFile: out.write(jsonResult)" );
         }
 
@@ -232,7 +232,7 @@ public class Manager {
         }
         List<String> urlList = parseInputFile(inputFilePath);
         //filter any unwanted strings
-        //urlList = urlList.stream().filter( url-> !(url.equals("") || url.equals("\n"))).collect(Collectors.toList());
+        urlList = urlList.stream().filter(url-> !(url.equals("") || url.equals("\n"))).collect(Collectors.toList());
         synchronized (lock){
             sizeOfCurrentInput+=urlList.size();
         }
