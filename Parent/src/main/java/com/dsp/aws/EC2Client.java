@@ -5,17 +5,14 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.ec2.Ec2Client;
 import software.amazon.awssdk.services.ec2.model.*;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 public class EC2Client {
 
     private static final Region REGION = Region.US_EAST_1;
-    private Ec2Client ec2client;
-    private GeneralUtils generalUtils;
+    private final Ec2Client ec2client;
+    private final GeneralUtils generalUtils;
 
     public EC2Client() {
         generalUtils = new GeneralUtils();
@@ -70,6 +67,7 @@ public class EC2Client {
         return instances;
     }
 
+    @SuppressWarnings("unused")
     public int getNumberOfInstances(Filter filter) {
         String nextToken = null;
         int count = 0;

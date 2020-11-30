@@ -16,10 +16,10 @@ public class LocalAppConfiguration {
     private String localToManagerQueueName;
     private String arn;
     private String awsKeyPair;
-    private InstanceType instanceType;
+    private final InstanceType instanceType;
     private String ami;
 
-    private GeneralUtils generalUtils;
+    private final GeneralUtils generalUtils;
 
     public LocalAppConfiguration() {
         generalUtils = new GeneralUtils();

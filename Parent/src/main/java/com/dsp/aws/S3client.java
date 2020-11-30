@@ -8,18 +8,15 @@ import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
 
 import java.io.File;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
 
 public class S3client {
 
     private static final Region REGION = Region.US_EAST_1;
-    private S3Client s3;
-    private GeneralUtils generalUtils;
+    private final S3Client s3;
+    private final GeneralUtils generalUtils;
 
     public S3client() {
         generalUtils = new GeneralUtils();
@@ -38,6 +35,20 @@ public class S3client {
                 .build();
         try {
             s3.createBucket(bucketRequest);
+        } catch (Exception e) {
+            GeneralUtils.printStackTrace(e, generalUtils);
+            return false;
+        }
+        return true;
+    }
+
+    public boolean deleteBucket(String bucketName){
+        DeleteBucketRequest deleteBucketRequest = DeleteBucketRequest
+                .builder()
+                .bucket(bucketName)
+                .build();
+        try {
+            s3.deleteBucket(deleteBucketRequest);
         } catch (Exception e) {
             GeneralUtils.printStackTrace(e, generalUtils);
             return false;

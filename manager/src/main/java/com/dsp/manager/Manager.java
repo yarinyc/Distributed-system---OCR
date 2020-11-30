@@ -5,8 +5,10 @@ import com.dsp.aws.S3client;
 import com.dsp.aws.SQSClient;
 import com.dsp.utils.GeneralUtils;
 import software.amazon.awssdk.core.util.json.JacksonUtils;
+import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.InstanceType;
+import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
@@ -57,6 +59,8 @@ public class Manager {
     private static String ami;
     private static String s3BucketName;
     private static String keyName;
+    private static boolean shouldDeleteS3;
+
 
     public static void main(String[] args) {
 
@@ -67,6 +71,7 @@ public class Manager {
         ami = args[3];
         arn = args[4];
         keyName = args[5];
+        shouldDeleteS3 = Boolean.parseBoolean(args[6]);
 
         //init AWS clients
         generalUtils = new GeneralUtils();
@@ -113,9 +118,71 @@ public class Manager {
                 handleResultMessage(m);
             }
         }
+        terminateSequence();
+    }
 
-        //TODO terminate seq: kill all ec2 and sqs
+    private static void terminateSequence() {
+        //delete s3 bucket
+        if(shouldDeleteS3){
+            s3.deleteBucket(s3BucketName);
+        }
 
+        //delete all existing sqs queues
+        terminateSqs();
+
+        // kill all running ec2 instances
+        terminateEc2();
+    }
+
+    private static void terminateSqs() {
+        if(!sqs.deleteQueue(localToManagerQueueUrl)){
+            generalUtils.logPrint("Error: localToManagerQueue couldn't be deleted");
+        }
+        if(!sqs.deleteQueue(managerToWorkersQueueUrl)){
+            generalUtils.logPrint("Error: managerToWorkersQueue couldn't be deleted");
+        }
+        if(!sqs.deleteQueue(workersToManagerQueueUrl)){
+            generalUtils.logPrint("Error: workersToManagerQueue couldn't be deleted");
+        }
+        //send all waiting clients a manager terminated message
+        for (String queueUrl : managerToLocalQueues.values()) {
+            HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
+            attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
+            attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("LocalApp").build());
+            if(!sqs.sendMessage(queueUrl, "MANAGER_TERMINATED", attributesMap)) {
+                generalUtils.logPrint("Error at sending task message to local app");
+            }
+        }
+    }
+
+    private static void terminateEc2() {
+        Filter filter = Filter.builder()
+                .name("instance-state-name")
+                .values("running")
+                .build();
+        List<Instance> runningInstances = ec2.getAllInstances(filter);
+        //find the running instances
+        List<Instance> managerInstance = new ArrayList<>();
+        runningInstances = runningInstances.stream().filter( instance -> {
+            for (Tag tag : instance.tags()) {
+                if (tag.value().equals("worker")) {
+                    return true;
+                }
+                if (tag.value().equals("manager")) {
+                    managerInstance.add(instance);
+                    return false;
+                }
+            }
+            return false;
+        }).collect(Collectors.toList());
+
+        //kill all running instances
+        if(runningInstances.isEmpty() || !ec2.terminateInstances(runningInstances.stream().map(Instance::instanceId).collect(Collectors.toList()))){
+            generalUtils.logPrint("No worker instances were terminated");
+        }
+
+        //kill manager node
+        ec2.terminateInstances(managerInstance.stream().map(Instance::instanceId).collect(Collectors.toList()));
     }
 
     private static void handleResultMessage(Message m) {
@@ -143,13 +210,8 @@ public class Manager {
             }
             completedSubTasksCounters.remove(localAppID); //delete counter, task is done
             generalUtils.logPrint("Submitting task result to resultExecutor" + localAppID);
-            resultExecutor.submit(()->{
-                try {
-                    createSendSummaryFile(localAppID);
-                } catch (IOException e) {
-                    generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
-                }
-            });
+
+            resultExecutor.submit(()-> createSendSummaryFile(localAppID));
         }
 
         //delete message from queue
@@ -163,15 +225,16 @@ public class Manager {
     }
 
     //Create summary file of all url subtasks results in json format and send to the local application
-    private static void createSendSummaryFile(String localAppID) throws IOException {
-        FileWriter fstream = null;
+    private static void createSendSummaryFile(String localAppID) {
+        FileWriter fStream;
         try {
-            fstream = new FileWriter(localAppID+"_result.txt");
+            fStream = new FileWriter(localAppID+"_result.txt");
         } catch (IOException e) {
             GeneralUtils.printStackTrace(e,generalUtils);
             generalUtils.logPrint("Error in createSendSummaryFile: FileWriter(localAppID+\"_result.txt\")");
+            return;
         }
-        BufferedWriter out = new BufferedWriter(fstream);
+        BufferedWriter out = new BufferedWriter(fStream);
 
         String jsonResult = JacksonUtils.toJsonString(tasksResults.get(localAppID));
         generalUtils.logPrint("JSON STRING: " + jsonResult);
@@ -255,7 +318,7 @@ public class Manager {
         Map<String, String> subTasksResult = new HashMap<>();
         completedSubTasksCounters.put(LocalAppID, new AtomicInteger(0)); //so far there are 0 completed subtasks(urls) of localAppID
         for (String url: urlList) {
-            subTasksResult.put(url, "####default-omer-yarin####");
+            subTasksResult.put(url, "####default-value####");
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());

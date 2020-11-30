@@ -22,7 +22,9 @@ public class GeneralUtils {
 
     public GeneralUtils(){
         try {
-            new File(LOG_FILE).createNewFile();
+            if(new File(LOG_FILE).createNewFile()){
+                System.out.println(LOG_FILE + " file was created");
+            }
         } catch (IOException e) {
             e.printStackTrace();
         }

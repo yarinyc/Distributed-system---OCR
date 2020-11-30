@@ -5,7 +5,6 @@ import com.dsp.aws.S3client;
 import com.dsp.aws.SQSClient;
 import com.dsp.utils.GeneralUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import software.amazon.awssdk.core.util.json.JacksonUtils;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.Tag;
@@ -25,6 +24,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class LocalApplication {
+    private static final String DELETE_S3 = "false";
     private static boolean isManagerDone = false;
     private static boolean shouldTerminate = false;
     private static EC2Client ec2;
@@ -39,20 +39,14 @@ public class LocalApplication {
     private static int n;
     private static ObjectMapper mapper;
 
-
-    // TODO delete temp file from dir after html creation - DONE
-    // TODO create this temp file in jars dir - DONE
-    // TODO termination seq in manager
-    // TODO in worker send result in base64 maybe will fix the no '\n' output - DONE
     // TODO check the photo that doesn't change the default value
     // TODO write detailed README.md
     // TODO check how to encrypt credentials
-    // TODO get rid of all warnings
+    // get rid of all warnings
 
     // TODO run multiple test cases:
     // TODO -> 1 worker, 3 workers, 8 workers, long input, short input, ->
     // TODO -> with/without jar upload, * all cases above with multiple local apps * ->
-    // TODO ->
 
     public static void main(String[] args){
 
@@ -120,6 +114,14 @@ public class LocalApplication {
 
         generalUtils.logPrint("\nReceiving response from manager");
 
+        if(responseKey.equals("MANAGER_TERMINATED")){
+            generalUtils.logPrint("Exiting local application: manager node terminated early...");
+            if(!sqs.deleteQueue(managerToLocalQueueUrl)){
+                generalUtils.logPrint("Error at deleting sqs queue managerToLocalQueueUrl");
+            }
+            System.exit(0);
+        }
+
         //tempId for temp result file
         String tempId = GeneralUtils.getUniqueID();
 
@@ -174,7 +176,6 @@ public class LocalApplication {
             //convert JSON string to Map
             HashMap<String, String> ocrResultsMap = mapper.readValue(mapJsonString.get(0), HashMap.class);
 
-
             //build html string
             StringBuilder ocrResults = new StringBuilder();
 
@@ -198,8 +199,8 @@ public class LocalApplication {
 
             //save html string to output file
             try {
-                FileWriter fstream = new FileWriter("outputs\\"+outputFileName+".html");
-                BufferedWriter out = new BufferedWriter(fstream);
+                FileWriter fStream = new FileWriter("outputs\\"+outputFileName+".html");
+                BufferedWriter out = new BufferedWriter(fStream);
                 try {
                     out.write(htmlOutput);
                     out.flush();
@@ -234,9 +235,6 @@ public class LocalApplication {
         }
         return false;
     }
-
-//    java -jar LocalApplication.jar C:\Users\omerd\OneDrive\Desktop\DSP\input.txt out1 8
-//    java -jar jars\LocalApplication.jar C:\Users\omerd\OneDrive\Desktop\DSP\input2.txt out2 3
 
     //check if manager node is up, if not we will start it and all aws services required
     private static void initManager() {
@@ -295,9 +293,9 @@ public class LocalApplication {
         userData = userData + "#!/bin/bash\n";
         userData = userData + "sudo mkdir /jars/\n";
         userData = userData + "sudo aws s3 cp s3://" + s3BucketName + "/jars/manager.jar /jars/\n";
-        userData += String.format("sudo java -jar /jars/manager.jar %s %s %s %s %s %s",
+        userData += String.format("sudo java -jar /jars/manager.jar %s %s %s %s %s %s %s",
                 n, config.getLocalToManagerQueueName(), config.getS3BucketName(),
-                config.getAmi(), config.getArn(), config.getAwsKeyPair());
+                config.getAmi(), config.getArn(), config.getAwsKeyPair(), DELETE_S3);
 
         return GeneralUtils.toBase64(userData);
     }

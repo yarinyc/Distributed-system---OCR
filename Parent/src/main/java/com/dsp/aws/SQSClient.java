@@ -5,9 +5,6 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.*;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -69,7 +66,6 @@ public class SQSClient {
         return sqs.receiveMessage(receiveRequest).messages();
     }
 
-
     public boolean sendMessage(String queueUrl, String messageBody, HashMap<String, MessageAttributeValue> attributes) {
         SendMessageRequest send_msg_request = SendMessageRequest.builder()
                 .queueUrl(queueUrl)
@@ -102,6 +98,7 @@ public class SQSClient {
         return true;
     }
 
+    @SuppressWarnings("unused")
     public boolean changeVisibility(String queueUrl, int visibilityTimeout, String s) {
         ChangeMessageVisibilityRequest changeMessageVisibilityRequest = ChangeMessageVisibilityRequest.builder()
                                                                         .queueUrl(queueUrl)
@@ -117,6 +114,7 @@ public class SQSClient {
         return true;
     }
 
+    @SuppressWarnings("unused")
     public int getPendingMessagesSize(String queueUrl) {
         GetQueueAttributesRequest attributesRequest = GetQueueAttributesRequest
                                                     .builder()
@@ -130,23 +128,14 @@ public class SQSClient {
             GeneralUtils.printStackTrace(e, generalUtils);
             return -1;
         }
-
     }
 
     public boolean deleteQueue(String queueUrl) {
-        //List<Message> messages = getMessages(queueUrl, 5);
         DeleteQueueRequest deleteQueueRequest = DeleteQueueRequest
                                                 .builder()
                                                 .queueUrl(queueUrl)
                                                 .build();
         try {
-//            for (Message message : messages) {
-//                DeleteMessageRequest deleteMessageRequest = DeleteMessageRequest.builder()
-//                                                            .queueUrl(queueUrl)
-//                                                            .receiptHandle(message.receiptHandle())
-//                                                            .build();
-//                sqs.deleteMessage(deleteMessageRequest);
-//            }
             sqs.deleteQueue(deleteQueueRequest);
         } catch (Exception e) {
             GeneralUtils.printStackTrace(e, generalUtils);
