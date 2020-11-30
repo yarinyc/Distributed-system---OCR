@@ -40,10 +40,10 @@ public class LocalApplication {
     private static ObjectMapper mapper;
 
 
-    // TODO delete temp file from dir after html creation
-    // TODO create this temp file in jars dir
+    // TODO delete temp file from dir after html creation - DONE
+    // TODO create this temp file in jars dir - DONE
     // TODO termination seq in manager
-    // TODO in worker send result in base64 maybe will fix the no '\n' output
+    // TODO in worker send result in base64 maybe will fix the no '\n' output - DONE
     // TODO check the photo that doesn't change the default value
     // TODO write detailed README.md
     // TODO check how to encrypt credentials
@@ -120,9 +120,12 @@ public class LocalApplication {
 
         generalUtils.logPrint("\nReceiving response from manager");
 
+        //tempId for temp result file
+        String tempId = GeneralUtils.getUniqueID();
+
         //get summary file from s3 bucket and create output html file
-        if(s3.getObject(s3BucketName, responseKey, outputFileName+"_temp")){
-            createHtml(outputFileName);
+        if(s3.getObject(s3BucketName, responseKey, "temps\\"+outputFileName+"_"+tempId)){
+            createHtml(outputFileName,tempId);
         }
         else{
             generalUtils.logPrint("Error at downloading summary file from s3 bucket");
@@ -164,23 +167,26 @@ public class LocalApplication {
     }
 
     //create final html output file
-    private static void createHtml(String outputFileName) {
+    private static void createHtml(String outputFileName, String tempId) {
         generalUtils.logPrint("creating HTML to " + outputFileName);
         try {
-            List<String> mapJsonString = Files.readAllLines(Paths.get(outputFileName+"_temp"), StandardCharsets.UTF_8);
+            List<String> mapJsonString = Files.readAllLines(Paths.get("temps\\"+outputFileName+"_"+tempId), StandardCharsets.UTF_8);
             //convert JSON string to Map
             HashMap<String, String> ocrResultsMap = mapper.readValue(mapJsonString.get(0), HashMap.class);
 
-            String ocrResults = "";
+
+            //build html string
+            StringBuilder ocrResults = new StringBuilder();
 
             for(HashMap.Entry<String, String> entry : ocrResultsMap.entrySet())
             {
                 System.out.println("Key : "+entry.getKey()+"   Value : "+entry.getValue());
-                ocrResults+=
-                "\t<p>\n" +
-                        "\t\t<img src=\""+entry.getKey() +"\"><br/>\n" +
-                        "\t\t"+entry.getValue()+"\n"+
-                "\t</p>\n";
+                ocrResults.append("\t<p>\n" + "\t\t<img src=\"")
+                        .append(entry.getKey()).append("\"><br/>\n")
+                        .append("\t\t")
+                        .append(entry.getValue().replaceAll("\n", "<br/>"))
+                        .append("\n")
+                        .append("\t</p>\n");
             }
 
             String htmlOutput =
@@ -190,31 +196,33 @@ public class LocalApplication {
             "</body>\n" +
             "<html>";
 
-            FileWriter fstream = null;
+            //save html string to output file
             try {
-                fstream = new FileWriter(outputFileName+".html");
+                FileWriter fstream = new FileWriter("outputs\\"+outputFileName+".html");
+                BufferedWriter out = new BufferedWriter(fstream);
+                try {
+                    out.write(htmlOutput);
+                    out.flush();
+                    out.close();
+                } catch (IOException e) {
+                    e.printStackTrace();
+                    generalUtils.logPrint("Error in createHtml: out.write(htmlOutput)" );
+                }
+
+                if(!new File("temps\\"+outputFileName+"_"+tempId).delete()){
+                    generalUtils.logPrint("temp image can't be deleted");
+                }
             } catch (IOException e) {
                 e.printStackTrace();
-                generalUtils.logPrint("Error in createHtml: FileWriter(outputFileName.html)");
+                generalUtils.logPrint("Error in createHtml: FileWriter(outputs\\outputFileName.html)");
             }
-            BufferedWriter out = new BufferedWriter(fstream);
-            try {
-                out.write(htmlOutput);
-                out.flush();
-                out.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-                generalUtils.logPrint("Error in createHtml: out.write(htmlOutput)" );
-            }
+
 
         } catch (IOException e) {
             e.printStackTrace();
             System.out.println("Error at creating html file");
             System.exit(1);
         }
-
-
-
     }
 
     //check if manager finished task (message in managerToLocalQueue)
@@ -226,6 +234,9 @@ public class LocalApplication {
         }
         return false;
     }
+
+//    java -jar LocalApplication.jar C:\Users\omerd\OneDrive\Desktop\DSP\input.txt out1 8
+//    java -jar jars\LocalApplication.jar C:\Users\omerd\OneDrive\Desktop\DSP\input2.txt out2 3
 
     //check if manager node is up, if not we will start it and all aws services required
     private static void initManager() {
