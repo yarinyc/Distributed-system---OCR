@@ -131,7 +131,6 @@ public class LocalApplication {
         }
         else{
             generalUtils.logPrint("Error at downloading summary file from s3 bucket");
-            System.exit(1);
         }
 
         //if received shouldTerminate in args, send terminate message to manager
