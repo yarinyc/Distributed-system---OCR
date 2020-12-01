@@ -48,6 +48,7 @@ public class Manager {
     //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
     //each localApp has it's own hashmap (Inner hashmap) of task results
     private static Map<String, Map<String, String>> tasksResults;
+    //hashmap in which key is LocalAppID and value is a counter of completed subtasks
     private static Map<String, AtomicInteger> completedSubTasksCounters;
     private static Map<String, String> managerToLocalQueues;
 
@@ -118,6 +119,7 @@ public class Manager {
                 handleResultMessage(m);
             }
         }
+        generalUtils.logPrint("Calling termination sequence");
         terminateSequence();
     }
 

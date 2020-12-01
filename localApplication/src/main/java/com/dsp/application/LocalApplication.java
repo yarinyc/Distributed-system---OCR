@@ -135,6 +135,7 @@ public class LocalApplication {
 
         //if received shouldTerminate in args, send terminate message to manager
         if(shouldTerminate){
+            generalUtils.logPrint("Terminating manager node");
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             if(!sqs.sendMessage(localToManagerQueueUrl,"terminate",attributesMap)) {
                 generalUtils.logPrint("Error at sending terminate message to manager");
@@ -271,13 +272,13 @@ public class LocalApplication {
             }
 
             generalUtils.logPrint("uploading manager jar file...");
-            if(!s3.putObject(config.getS3BucketName(), "jars/manager.jar", Paths.get("jars","manager.jar").toString())){
+            if(!s3.putObject(config.getS3BucketName(), "jars/manager.jar", Paths.get("./jars","manager.jar").toString())){
                 generalUtils.logPrint("Error in local app: s3.putObject manager.jar");
                 System.exit(1);
             }
 
             generalUtils.logPrint("uploading worker jar file...");
-            if(!s3.putObject(config.getS3BucketName(), "jars/worker.jar", Paths.get("jars","worker.jar").toString())){
+            if(!s3.putObject(config.getS3BucketName(), "jars/worker.jar", Paths.get("./jars","worker.jar").toString())){
                 generalUtils.logPrint("Error in local app: s3.putObject worker.jar");
                 System.exit(1);
             }

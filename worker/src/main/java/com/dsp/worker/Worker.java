@@ -87,6 +87,7 @@ public class Worker {
         //delete ocr task message from queue - only if OCR was successful!
         deleteMessageFromQueue(m, managerToWorkersQueueUrl);
 
+        //delete downloaded ocr image
         if(!new File(imagePath).delete()){
             generalUtils.logPrint("Image can't be deleted");
         }
