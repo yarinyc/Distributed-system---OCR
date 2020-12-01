@@ -23,6 +23,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -96,17 +97,19 @@ public class Manager {
         managerToLocalQueues = new ConcurrentHashMap<>();
 
         AtomicInteger shutdownCounter = new AtomicInteger(0);
+        AtomicBoolean shouldRun = new AtomicBoolean(true);
 
         resultExecutor = Executors.newFixedThreadPool(4);
         executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
         //start all localToManagerQueue listeners
         for(int i=0; i<NUM_OF_THREADS; i++) {
             executor.submit(() -> {
-                while (!Thread.interrupted()) {
+                while (shouldRun.get()){
                     List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
-                    handleMessage(n, messages);
+                    handleMessage(n, messages, shouldRun);
                 }
-                shutdownCounter.incrementAndGet(); // signal the main thread that this thread is finished
+                int count = shutdownCounter.incrementAndGet(); // signal the main thread that this thread is finished
+                generalUtils.logPrint("ShutdownCounter is " + count);
             });
         }
 
@@ -268,16 +271,18 @@ public class Manager {
         }
     }
 
-    private static void handleMessage(int n, List<Message> messages) {
+    private static void handleMessage(int n, List<Message> messages,AtomicBoolean shouldRun) {
         if(!messages.isEmpty()){
             Message message = messages.get(0);
             String body = message.body();
             if(body.equals("terminate")){
-                executor.shutdownNow();
+                generalUtils.logPrint("Terminate message received in manager");
                 if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
                     generalUtils.logPrint("Error at deleting task message from localToManagerQueue");
                     System.exit(1); // Fatal Error
                 }
+                shouldRun.set(false);
+//                executor.shutdown();
             }
             else{
                 //add manager to local app queue to map
