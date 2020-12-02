@@ -21,7 +21,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -129,6 +128,13 @@ public class Manager {
                     //get all needed information and the result
                     generalUtils.logPrint("Handling result message");
                     handleResultMessage(m);
+                }
+                if(messages.isEmpty()){
+                    try {
+                        Thread.sleep(1_000);
+                    } catch (InterruptedException e) {
+                        GeneralUtils.printStackTrace(e, generalUtils);
+                    }
                 }
             } catch (Exception e){
                 GeneralUtils.printStackTrace(e, generalUtils);
@@ -243,6 +249,13 @@ public class Manager {
                 distributeTasks(n, messages, body); // body is the localAppID
             }
         }
+        else{
+            try {
+                Thread.sleep(1_000);
+            } catch (InterruptedException e) {
+                GeneralUtils.printStackTrace(e, generalUtils);
+            }
+        }
     }
 
     private static void distributeTasks(int n, List<Message> messages, String localAppID) {
@@ -278,7 +291,7 @@ public class Manager {
         urlCounters.put(localAppID, urlList.size());
         for (String url: urlList) {
             //subTasksResult.put(url, "####default-value####");
-            subTasksResult.put(url, Collections.synchronizedList(new ArrayList<String>()));
+            subTasksResult.put(url, Collections.synchronizedList(new ArrayList<>()));
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());

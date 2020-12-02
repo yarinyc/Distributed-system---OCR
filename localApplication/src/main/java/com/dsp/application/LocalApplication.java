@@ -45,9 +45,9 @@ public class LocalApplication {
 
     // TODO write detailed README.md
     // TODO check how to encrypt credentials
-    // TODO fix load balance
-    // TODO each client needs to delete his 2 objects in S3
-    // TODO get rid of all warnings
+    // TODO add documentation in manager fields
+    // TODO add in manager DAEMON thread to update number of current running worker nodes
+    // TODO num of threads : number of processesors * 2
 
     // TODO run multiple test cases:
     // TODO -> 1 worker, 3 workers, 8 workers, long input, short input, ->

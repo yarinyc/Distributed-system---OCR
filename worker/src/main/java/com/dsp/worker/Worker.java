@@ -49,6 +49,13 @@ public class Worker {
                     generalUtils.logPrint("Error in main: handleOcrTask failed, continuing...");
                 }
             }
+            if(messages.isEmpty()){
+                try {
+                    Thread.sleep(2_000);
+                } catch (InterruptedException e) {
+                    GeneralUtils.printStackTrace(e, generalUtils);
+                }
+            }
         }
         generalUtils.logPrint("Worker finished");
         // END OF MAIN
@@ -79,6 +86,11 @@ public class Worker {
         generalUtils.logPrint("URL: "+ inputUrl);
         generalUtils.logPrint("RESULT: "+ ocrResult);
 
+
+        //delete ocr task message from queue - only if OCR was successful!
+        //if deletion fails because message was already deleted, continue to next message without submitting result
+        deleteMessageFromQueue(m, managerToWorkersQueueUrl);
+
         //send ocr result to manager
         HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
         attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
@@ -89,9 +101,6 @@ public class Worker {
             generalUtils.logPrint("Error at sending OCR task result to manager, URL: " + inputUrl);
             throw new RuntimeException("Error in sending sqs message");
         }
-
-        //delete ocr task message from queue - only if OCR was successful!
-        deleteMessageFromQueue(m, managerToWorkersQueueUrl);
 
         //delete downloaded ocr image
         if(!new File(imagePath).delete()){
