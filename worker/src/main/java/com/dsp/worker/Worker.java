@@ -36,16 +36,22 @@ public class Worker {
 
         //create OCR engine
         tesseract = new Tesseract();
-        tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
+        tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata"); // in our ami, tessdata is already downloaded.
 
         while(!Thread.interrupted()){
             List<Message> messages = sqs.getMessages(managerToWorkersQueueUrl, 1);
             for(Message m : messages){
                 generalUtils.logPrint("Handling task");
-                handleOcrTask(m,workersToManagerQueueUrl, managerToWorkersQueueUrl);
+                try {
+                    handleOcrTask(m, workersToManagerQueueUrl, managerToWorkersQueueUrl);
+                } catch(Exception e){
+                    GeneralUtils.printStackTrace(e, generalUtils);
+                    generalUtils.logPrint("Error in main: handleOcrTask failed, continuing...");
+                }
             }
         }
         generalUtils.logPrint("Worker finished");
+        // END OF MAIN
     }
 
     //handle OCR Task
@@ -81,7 +87,7 @@ public class Worker {
         attributesMap.put("Url", MessageAttributeValue.builder().dataType("String").stringValue(inputUrl).build());
         if(!sqs.sendMessage(workersToManagerQueueUrl, ocrResult, attributesMap)) {
             generalUtils.logPrint("Error at sending OCR task result to manager, URL: " + inputUrl);
-            System.exit(1); // Fatal Error
+            throw new RuntimeException("Error in sending sqs message");
         }
 
         //delete ocr task message from queue - only if OCR was successful!
@@ -98,7 +104,7 @@ public class Worker {
         msgToDelete.add(m);
         if(!sqs.deleteMessages(msgToDelete, managerToWorkersQueueUrl)){
             generalUtils.logPrint("Error at deleting task message from managerToWorkersQueue");
-            System.exit(1); // Fatal Error
+            throw new RuntimeException("Error in deleting sqs message");
         }
     }
 
@@ -119,8 +125,7 @@ public class Worker {
         try {
             // apply OCR on the image
             return tesseract.doOCR(new File(imagePath));
-        }
-        catch (TesseractException e) {
+        } catch (TesseractException e) {
             generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
             return null;
         }
@@ -143,24 +148,5 @@ public class Worker {
             return "";
         }
         return downloadFilePath;
-
-//        try{
-//            URL url = new URL(urlInput);
-//            InputStream inputStream = url.openStream();
-//            OutputStream fileOutputStream = new FileOutputStream(downloadFilePath);
-//            int ch;
-//            while ((ch = inputStream.read()) != -1) { //read till end of file
-//                fileOutputStream.write(ch);
-//            }
-//            inputStream.close();
-//            fileOutputStream.close();
-//            return downloadFilePath;
-//        }
-//        catch (IOException e){
-//            generalUtils.logPrint("Error at creating url object");
-//            return "";
-//        }
     }
-
-
 }

@@ -68,7 +68,7 @@ public class LocalApplication {
         //cli args
         String inputFileName = args[0];
         String outputFileName = args[1];
-        n = Integer.parseInt(args[2]);
+        n = Math.max(Integer.parseInt(args[2]), 1);
         if(args.length == 4 && args[3].equals("terminate")) {
             shouldTerminate = true;
         }
@@ -108,7 +108,7 @@ public class LocalApplication {
             //we will send it as an attribute in the response message from the manager and change
             //the responseKey field value in checkResponse
             try {
-                TimeUnit.SECONDS.sleep(5);
+                TimeUnit.SECONDS.sleep(2);
             } catch (Exception e){
                 generalUtils.logPrint(Arrays.toString(e.getStackTrace()));
                 System.exit(1);
@@ -139,23 +139,7 @@ public class LocalApplication {
             generalUtils.logPrint("Error at downloading summary file from s3 bucket");
         }
 
-        //if received shouldTerminate in args, send terminate message to manager
-        if(shouldTerminate){
-            generalUtils.logPrint("Terminating manager node");
-            HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
-            if(!sqs.sendMessage(localToManagerQueueUrl,"terminate",attributesMap)) {
-                generalUtils.logPrint("Error at sending terminate message to manager");
-                //System.exit(1);
-            }
-        }
-
-        if(!sqs.deleteQueue(managerToLocalQueueUrl)){
-            generalUtils.logPrint("Error at deleting sqs queue managerToLocalQueueUrl");
-        }
-
-        if(!s3.deleteObject(s3BucketName, localAppID) | !s3.deleteObject(s3BucketName, responseKey)){
-            generalUtils.logPrint("Error in deleting S3 objects");
-        }
+        terminateSequence(localAppID);
 
         generalUtils.logPrint("Exiting local application");
     }
@@ -183,8 +167,8 @@ public class LocalApplication {
         generalUtils.logPrint("creating HTML to " + outputFileName);
         try {
             List<String> mapJsonString = Files.readAllLines(Paths.get("temps", outputFileName+"_"+tempId), StandardCharsets.UTF_8);
-            //convert JSON string to Map
 
+            //convert JSON string to Map
             TypeFactory typeFactory = mapper.getTypeFactory();
             CollectionType collectionType = typeFactory.constructCollectionType(ArrayList.class, String.class);
             MapType mapType = typeFactory.constructMapType(HashMap.class, String.class, collectionType.getRawClass());
@@ -315,6 +299,26 @@ public class LocalApplication {
                 config.getAmi(), config.getArn(), config.getAwsKeyPair(), DELETE_S3);
 
         return GeneralUtils.toBase64(userData);
+    }
+
+    private static void terminateSequence(String localAppID) {
+        //if received shouldTerminate in args, send terminate message to manager
+        if(shouldTerminate){
+            generalUtils.logPrint("Terminating manager node");
+            HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
+            if(!sqs.sendMessage(localToManagerQueueUrl,"terminate",attributesMap)) {
+                generalUtils.logPrint("Error at sending terminate message to manager");
+                //System.exit(1);
+            }
+        }
+
+        if(!sqs.deleteQueue(managerToLocalQueueUrl)){
+            generalUtils.logPrint("Error at deleting sqs queue managerToLocalQueueUrl");
+        }
+
+        if(!s3.deleteObject(s3BucketName, localAppID) | !s3.deleteObject(s3BucketName, responseKey)){
+            generalUtils.logPrint("Error in deleting S3 objects");
+        }
     }
 
 }

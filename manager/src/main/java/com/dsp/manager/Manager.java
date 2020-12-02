@@ -109,7 +109,12 @@ public class Manager {
             executor.submit(() -> {
                 while (shouldRun.get()){
                     List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
-                    handleMessage(n, messages, shouldRun);
+                    try {
+                        handleMessage(n, messages, shouldRun);
+                    } catch (Exception e){
+                        GeneralUtils.printStackTrace(e, generalUtils);
+                        generalUtils.logPrint("Error in listener thread: handleMessage failed, continuing...");
+                    }
                 }
                 int count = shutdownCounter.incrementAndGet(); // signal the main thread that this thread is finished
                 generalUtils.logPrint("ShutdownCounter is " + count);
@@ -118,15 +123,21 @@ public class Manager {
 
         while (shutdownCounter.get() != NUM_OF_THREADS || !completedSubTasksCounters.isEmpty()){
             //poll queue for results
-            List<Message> messages = sqs.getMessages(workersToManagerQueueUrl, 5);
-            for(Message m : messages){
-                //get all needed information and the result
-                generalUtils.logPrint("Handling result message");
-                handleResultMessage(m);
+            try {
+                List<Message> messages = sqs.getMessages(workersToManagerQueueUrl, 5);
+                for (Message m : messages) {
+                    //get all needed information and the result
+                    generalUtils.logPrint("Handling result message");
+                    handleResultMessage(m);
+                }
+            } catch (Exception e){
+                GeneralUtils.printStackTrace(e, generalUtils);
+                generalUtils.logPrint("Error in listener thread: handleMessage failed, continuing...");
             }
         }
         generalUtils.logPrint("Calling termination sequence");
         terminateSequence();
+        // END OF MAIN
     }
 
     private static void handleResultMessage(Message m) {
@@ -284,7 +295,6 @@ public class Manager {
     private static void loadBalance(int n) {
         synchronized (lock){
             int numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput/n)+1;
-//            numOfWorkersNeeded = Math.max(numOfWorkersNeeded, 1); // in case (n > inputSize)
             numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
             if(numOfWorkersNeeded <= numOfActiveWorkers){
                 generalUtils.logPrint("In loadBalance: No extra workers needed. currently #" + numOfActiveWorkers );
@@ -311,10 +321,8 @@ public class Manager {
         if(shouldDeleteS3){
             s3.deleteBucket(s3BucketName);
         }
-
         //delete all existing sqs queues
         terminateSqs();
-
         // kill all running ec2 instances
         terminateEc2();
     }
