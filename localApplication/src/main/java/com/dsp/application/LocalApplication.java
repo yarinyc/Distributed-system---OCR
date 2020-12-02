@@ -172,7 +172,7 @@ public class LocalApplication {
     private static void createHtml(String outputFileName, String tempId) {
         generalUtils.logPrint("creating HTML to " + outputFileName);
         try {
-            List<String> mapJsonString = Files.readAllLines(Paths.get("temps\\"+outputFileName+"_"+tempId), StandardCharsets.UTF_8);
+            List<String> mapJsonString = Files.readAllLines(Paths.get("temps", outputFileName+"_"+tempId), StandardCharsets.UTF_8);
             //convert JSON string to Map
             HashMap<String, String> ocrResultsMap = mapper.readValue(mapJsonString.get(0), HashMap.class);
 
@@ -199,7 +199,7 @@ public class LocalApplication {
 
             //save html string to output file
             try {
-                FileWriter fStream = new FileWriter("outputs\\"+outputFileName+".html");
+                FileWriter fStream = new FileWriter("outputs"+ File.separator +outputFileName+".html");
                 BufferedWriter out = new BufferedWriter(fStream);
                 try {
                     out.write(htmlOutput);
@@ -210,7 +210,7 @@ public class LocalApplication {
                     generalUtils.logPrint("Error in createHtml: out.write(htmlOutput)" );
                 }
 
-                if(!new File("temps\\"+outputFileName+"_"+tempId).delete()){
+                if(!new File(Paths.get("temps", outputFileName+"_"+tempId).toString()).delete()){
                     generalUtils.logPrint("temp image can't be deleted");
                 }
             } catch (IOException e) {
