@@ -52,7 +52,7 @@
           </execution>
         </executions>
         <configuration>
-          <finalName>Manager</finalName>
+          <finalName>manager</finalName>
           <appendAssemblyId>false</appendAssemblyId>
           <outputDirectory>../jars</outputDirectory>
           <archive>

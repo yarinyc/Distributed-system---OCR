@@ -5,6 +5,9 @@ import com.dsp.aws.S3client;
 import com.dsp.aws.SQSClient;
 import com.dsp.utils.GeneralUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.type.CollectionType;
+import com.fasterxml.jackson.databind.type.MapType;
+import com.fasterxml.jackson.databind.type.TypeFactory;
 import software.amazon.awssdk.services.ec2.model.Filter;
 import software.amazon.awssdk.services.ec2.model.Instance;
 import software.amazon.awssdk.services.ec2.model.Tag;
@@ -18,6 +21,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -39,10 +43,11 @@ public class LocalApplication {
     private static int n;
     private static ObjectMapper mapper;
 
-    // TODO check the photo that doesn't change the default value
     // TODO write detailed README.md
     // TODO check how to encrypt credentials
-    // get rid of all warnings
+    // TODO fix load balance
+    // TODO each client needs to delete his 2 objects in S3
+    // TODO get rid of all warnings
 
     // TODO run multiple test cases:
     // TODO -> 1 worker, 3 workers, 8 workers, long input, short input, ->
@@ -111,8 +116,9 @@ public class LocalApplication {
             isManagerDone = checkResponse();
             System.out.print(".");
         }
+        System.out.println();
 
-        generalUtils.logPrint("\nReceiving response from manager");
+        generalUtils.logPrint("Receiving response from manager");
 
         if(responseKey.equals("MANAGER_TERMINATED")){
             generalUtils.logPrint("Exiting local application: manager node terminated early...");
@@ -126,7 +132,7 @@ public class LocalApplication {
         String tempId = GeneralUtils.getUniqueID();
 
         //get summary file from s3 bucket and create output html file
-        if(s3.getObject(s3BucketName, responseKey, "temps\\"+outputFileName+"_"+tempId)){
+        if(s3.getObject(s3BucketName, responseKey, "temps"+ File.separator +outputFileName+"_"+tempId)){
             createHtml(outputFileName,tempId);
         }
         else{
@@ -145,6 +151,10 @@ public class LocalApplication {
 
         if(!sqs.deleteQueue(managerToLocalQueueUrl)){
             generalUtils.logPrint("Error at deleting sqs queue managerToLocalQueueUrl");
+        }
+
+        if(!s3.deleteObject(s3BucketName, localAppID) | !s3.deleteObject(s3BucketName, responseKey)){
+            generalUtils.logPrint("Error in deleting S3 objects");
         }
 
         generalUtils.logPrint("Exiting local application");
@@ -174,20 +184,27 @@ public class LocalApplication {
         try {
             List<String> mapJsonString = Files.readAllLines(Paths.get("temps", outputFileName+"_"+tempId), StandardCharsets.UTF_8);
             //convert JSON string to Map
-            HashMap<String, String> ocrResultsMap = mapper.readValue(mapJsonString.get(0), HashMap.class);
+
+            TypeFactory typeFactory = mapper.getTypeFactory();
+            CollectionType collectionType = typeFactory.constructCollectionType(ArrayList.class, String.class);
+            MapType mapType = typeFactory.constructMapType(HashMap.class, String.class, collectionType.getRawClass());
+
+            HashMap<String, List<String>> ocrResultsMap = mapper.readValue(mapJsonString.get(0), mapType);
 
             //build html string
             StringBuilder ocrResults = new StringBuilder();
 
-            for(HashMap.Entry<String, String> entry : ocrResultsMap.entrySet())
-            {
-                System.out.println("Key : "+entry.getKey()+"   Value : "+entry.getValue());
-                ocrResults.append("\t<p>\n" + "\t\t<img src=\"")
-                        .append(entry.getKey()).append("\"><br/>\n")
-                        .append("\t\t")
-                        .append(entry.getValue().replaceAll("\n", "<br/>"))
-                        .append("\n")
-                        .append("\t</p>\n");
+            for(HashMap.Entry<String, List<String>> entry : ocrResultsMap.entrySet()) {
+                String url = entry.getKey();
+                List<String> results = entry.getValue();
+                for(String result : results) {
+                    ocrResults.append("\t<p>\n" + "\t\t<img src=\"")
+                            .append(url).append("\"><br/>\n")
+                            .append("\t\t")
+                            .append(result.replaceAll("\n", "<br/>"))
+                            .append("\n")
+                            .append("\t</p>\n");
+                }
             }
 
             String htmlOutput =

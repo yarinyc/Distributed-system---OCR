@@ -60,7 +60,7 @@ public class S3client {
     public boolean putObject(String bucketName, String bucketKey, String inFilePath) {
         PutObjectRequest putRequest = PutObjectRequest
                                     .builder()
-                                    .acl(ObjectCannedACL.PUBLIC_READ_WRITE)
+                                    .acl(ObjectCannedACL.BUCKET_OWNER_FULL_CONTROL)
                                     .bucket(bucketName).key(bucketKey)
                                     .build();
         try {
@@ -71,6 +71,23 @@ public class S3client {
             return false;
         }
         generalUtils.logPrint("done putting file in s3 bucket");
+        return true;
+    }
+
+
+    public boolean deleteObject(String bucketName, String bucketKey){
+        DeleteObjectRequest deleteObjectRequest = DeleteObjectRequest
+                                                .builder()
+                                                .bucket(bucketName)
+                                                .key(bucketKey)
+                                                .build();
+        try{
+            generalUtils.logPrint("deleting file from s3 bucket: " + bucketKey);
+            s3.deleteObject(deleteObjectRequest);
+        } catch(Exception e){
+            GeneralUtils.printStackTrace(e, generalUtils);
+            return false;
+        }
         return true;
     }
 

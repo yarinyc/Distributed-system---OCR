@@ -47,7 +47,7 @@
           </execution>
         </executions>
         <configuration>
-          <finalName>Worker</finalName>
+          <finalName>worker</finalName>
           <appendAssemblyId>false</appendAssemblyId>
           <outputDirectory>../jars</outputDirectory>
           <archive>

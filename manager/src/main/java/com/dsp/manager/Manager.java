@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -39,7 +40,6 @@ public class Manager {
     private static SQSClient sqs;
     private static GeneralUtils generalUtils;
 
-    private static ExecutorService executor;
     private static ExecutorService resultExecutor;
 
     private static String localToManagerQueueUrl;
@@ -48,10 +48,12 @@ public class Manager {
 
     //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
     //each localApp has it's own hashmap (Inner hashmap) of task results
-    private static Map<String, Map<String, String>> tasksResults;
+    private static Map<String, Map<String, List<String>>> tasksResults;
     //hashmap in which key is LocalAppID and value is a counter of completed subtasks
     private static Map<String, AtomicInteger> completedSubTasksCounters;
     private static Map<String, String> managerToLocalQueues;
+    // count the number of times each url appears in the input file for a specific localAppID
+    private static Map<String, Integer> urlCounters;
 
     private static Integer numOfActiveWorkers;
     private static Integer sizeOfCurrentInput;
@@ -95,12 +97,13 @@ public class Manager {
         completedSubTasksCounters = new ConcurrentHashMap<>();
         tasksResults = new ConcurrentHashMap<>();
         managerToLocalQueues = new ConcurrentHashMap<>();
+        urlCounters = new ConcurrentHashMap<>();
 
         AtomicInteger shutdownCounter = new AtomicInteger(0);
         AtomicBoolean shouldRun = new AtomicBoolean(true);
 
         resultExecutor = Executors.newFixedThreadPool(4);
-        executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
+        ExecutorService executor = Executors.newFixedThreadPool(NUM_OF_THREADS);
         //start all localToManagerQueue listeners
         for(int i=0; i<NUM_OF_THREADS; i++) {
             executor.submit(() -> {
@@ -126,70 +129,6 @@ public class Manager {
         terminateSequence();
     }
 
-    private static void terminateSequence() {
-        //delete s3 bucket
-        if(shouldDeleteS3){
-            s3.deleteBucket(s3BucketName);
-        }
-
-        //delete all existing sqs queues
-        terminateSqs();
-
-        // kill all running ec2 instances
-        terminateEc2();
-    }
-
-    private static void terminateSqs() {
-        if(!sqs.deleteQueue(localToManagerQueueUrl)){
-            generalUtils.logPrint("Error: localToManagerQueue couldn't be deleted");
-        }
-        if(!sqs.deleteQueue(managerToWorkersQueueUrl)){
-            generalUtils.logPrint("Error: managerToWorkersQueue couldn't be deleted");
-        }
-        if(!sqs.deleteQueue(workersToManagerQueueUrl)){
-            generalUtils.logPrint("Error: workersToManagerQueue couldn't be deleted");
-        }
-        //send all waiting clients a manager terminated message
-        for (String queueUrl : managerToLocalQueues.values()) {
-            HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
-            attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
-            attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("LocalApp").build());
-            if(!sqs.sendMessage(queueUrl, "MANAGER_TERMINATED", attributesMap)) {
-                generalUtils.logPrint("Error at sending task message to local app");
-            }
-        }
-    }
-
-    private static void terminateEc2() {
-        Filter filter = Filter.builder()
-                .name("instance-state-name")
-                .values("running")
-                .build();
-        List<Instance> runningInstances = ec2.getAllInstances(filter);
-        //find the running instances
-        List<Instance> managerInstance = new ArrayList<>();
-        runningInstances = runningInstances.stream().filter( instance -> {
-            for (Tag tag : instance.tags()) {
-                if (tag.value().equals("worker")) {
-                    return true;
-                }
-                if (tag.value().equals("manager")) {
-                    managerInstance.add(instance);
-                    return false;
-                }
-            }
-            return false;
-        }).collect(Collectors.toList());
-
-        //kill all running instances
-        if(runningInstances.isEmpty() || !ec2.terminateInstances(runningInstances.stream().map(Instance::instanceId).collect(Collectors.toList()))){
-            generalUtils.logPrint("No worker instances were terminated");
-        }
-
-        //kill manager node
-        ec2.terminateInstances(managerInstance.stream().map(Instance::instanceId).collect(Collectors.toList()));
-    }
-
     private static void handleResultMessage(Message m) {
         Map<String, MessageAttributeValue> attributes = m.messageAttributes();
         String localAppID = attributes.get("LocalAppID").stringValue();
@@ -203,17 +142,19 @@ public class Manager {
         }
 
         //add result to hashmap + update counter of completed tasks of localAppID
-        tasksResults.get(localAppID).put(url, result);
+        tasksResults.get(localAppID).get(url).add(result);
+
         int new_count = completedSubTasksCounters.get(localAppID).incrementAndGet();
         //completedSubTasksCounters.put(localAppID,new_count);
 
         //check if now all subtasks of localAppID are done
-        if(new_count == tasksResults.get(localAppID).size()){
+        if(new_count == urlCounters.get(localAppID)){
             generalUtils.logPrint("Completing task for local app ID: " + localAppID);
             synchronized (lock){
-                sizeOfCurrentInput -= tasksResults.get(localAppID).size();
+                sizeOfCurrentInput -= urlCounters.get(localAppID);
             }
             completedSubTasksCounters.remove(localAppID); //delete counter, task is done
+            urlCounters.remove(localAppID);
             generalUtils.logPrint("Submitting task result to resultExecutor" + localAppID);
 
             resultExecutor.submit(()-> createSendSummaryFile(localAppID));
@@ -282,7 +223,6 @@ public class Manager {
                     System.exit(1); // Fatal Error
                 }
                 shouldRun.set(false);
-//                executor.shutdown();
             }
             else{
                 //add manager to local app queue to map
@@ -321,33 +261,37 @@ public class Manager {
     }
 
     //sends url tasks to workers
-    private static void sendTasks(String LocalAppID, List<String> urlList) {
-        Map<String, String> subTasksResult = new HashMap<>();
-        completedSubTasksCounters.put(LocalAppID, new AtomicInteger(0)); //so far there are 0 completed subtasks(urls) of localAppID
+    private static void sendTasks(String localAppID, List<String> urlList) {
+        Map<String, List<String>> subTasksResult = new ConcurrentHashMap<>();
+        completedSubTasksCounters.put(localAppID, new AtomicInteger(0)); //so far there are 0 completed subtasks(urls) of localAppID
+        urlCounters.put(localAppID, urlList.size());
         for (String url: urlList) {
-            subTasksResult.put(url, "####default-value####");
+            //subTasksResult.put(url, "####default-value####");
+            subTasksResult.put(url, Collections.synchronizedList(new ArrayList<String>()));
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
-            attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(LocalAppID).build());
+            attributesMap.put("LocalAppID", MessageAttributeValue.builder().dataType("String").stringValue(localAppID).build());
             if(!sqs.sendMessage(managerToWorkersQueueUrl, url, attributesMap)) {
                 generalUtils.logPrint("Error at sending task message to worker");
                 System.exit(1); // Fatal Error
             }
         }
-        tasksResults.put(LocalAppID, subTasksResult); // we add a new results hashmap of LocalAppID
+        tasksResults.put(localAppID, subTasksResult); // we add a new results hashmap of LocalAppID
     }
 
     // checks if there are enough workers running, if not creates them.
     private static void loadBalance(int n) {
         synchronized (lock){
             int numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput/n)+1;
-            numOfWorkersNeeded = Math.max(numOfWorkersNeeded, 1); // in case (n > inputSize)
+//            numOfWorkersNeeded = Math.max(numOfWorkersNeeded, 1); // in case (n > inputSize)
             numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
             if(numOfWorkersNeeded <= numOfActiveWorkers){
+                generalUtils.logPrint("In loadBalance: No extra workers needed. currently #" + numOfActiveWorkers );
                 return;
             }
             int delta = numOfWorkersNeeded - numOfActiveWorkers;
+            generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (before) #" + numOfActiveWorkers );
             String userData = createWorkerScript();
             List<Instance> instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
             if(instances != null){
@@ -358,7 +302,72 @@ public class Manager {
                     }
                 }
             }
+            generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (after) #" + numOfActiveWorkers );
         }
+    }
+
+    private static void terminateSequence() {
+        //delete s3 bucket
+        if(shouldDeleteS3){
+            s3.deleteBucket(s3BucketName);
+        }
+
+        //delete all existing sqs queues
+        terminateSqs();
+
+        // kill all running ec2 instances
+        terminateEc2();
+    }
+
+    private static void terminateSqs() {
+        if(!sqs.deleteQueue(localToManagerQueueUrl)){
+            generalUtils.logPrint("Error: localToManagerQueue couldn't be deleted");
+        }
+        if(!sqs.deleteQueue(managerToWorkersQueueUrl)){
+            generalUtils.logPrint("Error: managerToWorkersQueue couldn't be deleted");
+        }
+        if(!sqs.deleteQueue(workersToManagerQueueUrl)){
+            generalUtils.logPrint("Error: workersToManagerQueue couldn't be deleted");
+        }
+        //send all waiting clients a manager terminated message
+        for (String queueUrl : managerToLocalQueues.values()) {
+            HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
+            attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
+            attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("LocalApp").build());
+            if(!sqs.sendMessage(queueUrl, "MANAGER_TERMINATED", attributesMap)) {
+                generalUtils.logPrint("Error at sending task message to local app");
+            }
+        }
+    }
+
+    private static void terminateEc2() {
+        Filter filter = Filter.builder()
+                .name("instance-state-name")
+                .values("running")
+                .build();
+        List<Instance> runningInstances = ec2.getAllInstances(filter);
+        //find the running instances
+        List<Instance> managerInstance = new ArrayList<>();
+        runningInstances = runningInstances.stream().filter( instance -> {
+            for (Tag tag : instance.tags()) {
+                if (tag.value().equals("worker")) {
+                    return true;
+                }
+                if (tag.value().equals("manager")) {
+                    managerInstance.add(instance);
+                    return false;
+                }
+            }
+            return false;
+        }).collect(Collectors.toList());
+
+        //kill all running instances
+        if(runningInstances.isEmpty() || !ec2.terminateInstances(runningInstances.stream().map(Instance::instanceId).collect(Collectors.toList()))){
+            generalUtils.logPrint("No worker instances were terminated");
+        }
+
+        //kill manager node
+        ec2.terminateInstances(managerInstance.stream().map(Instance::instanceId).collect(Collectors.toList()));
     }
 
     //auxiliary function for reading input files
