@@ -67,26 +67,16 @@ public class EC2Client {
         return instances;
     }
 
-    @SuppressWarnings("unused")
-    public int getNumberOfInstances(Filter filter) {
-        String nextToken = null;
+    public int getNumberOfWorkerInstances(Filter filter) {
         int count = 0;
-        try {
-            do {
-                DescribeInstancesRequest request = DescribeInstancesRequest
-                        .builder()
-                        .filters(filter)
-                        .nextToken(nextToken)
-                        .build();
-                DescribeInstancesResponse response = ec2client.describeInstances(request);
-                // find all instances in current response
-                for (Reservation reservation : response.reservations()) {
-                    count += reservation.instances().size();
+        List<Instance> instances = getAllInstances(filter);
+        for(Instance instance : instances) {
+            for (Tag tag : instance.tags()) {
+                if (tag.value().equals("worker")) {
+                    count++;
+                    break;
                 }
-                nextToken = response.nextToken();
-            } while (nextToken != null);
-        } catch (Ec2Exception e) {
-            GeneralUtils.printStackTrace(e, generalUtils);
+            }
         }
         return count;
     }

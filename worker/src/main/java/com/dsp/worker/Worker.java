@@ -1,5 +1,6 @@
 package com.dsp.worker;
 
+import com.dsp.aws.EC2Client;
 import com.dsp.utils.GeneralUtils;
 import net.sourceforge.tess4j.Tesseract;
 import net.sourceforge.tess4j.TesseractException;
@@ -10,29 +11,37 @@ import java.io.IOException;
 import java.net.URL;
 import java.util.*;
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import javax.imageio.ImageIO;
 
 import com.dsp.aws.SQSClient;
 
+import software.amazon.awssdk.regions.internal.util.EC2MetadataUtils;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
 
 public class Worker {
     private static SQSClient sqs;
+    private static EC2Client ec2;
     private static Tesseract tesseract;
     private static GeneralUtils generalUtils;
+    private static final String instanceId = EC2MetadataUtils.getInstanceId();
+    private static String managerToWorkersQueueUrl;
+    private static String workersToManagerQueueUrl;
 
     public static void main(String[] args) {
 
         //get queue urls from args
-        String managerToWorkersQueueUrl = args[0];
-        String workersToManagerQueueUrl = args[1];
+        managerToWorkersQueueUrl = args[0];
+        workersToManagerQueueUrl = args[1];
 
         generalUtils = new GeneralUtils();
 
         //init AWS clients
         sqs = new SQSClient();
+        ec2 = new EC2Client();
 
         //create OCR engine
         tesseract = new Tesseract();
@@ -43,7 +52,12 @@ public class Worker {
             for(Message m : messages){
                 generalUtils.logPrint("Handling task");
                 try {
-                    handleOcrTask(m, workersToManagerQueueUrl, managerToWorkersQueueUrl);
+                    if(m.body().equals("WORKER_TERMINATE")){
+                        terminateSequence(m);
+                    }
+                    else {
+                        handleOcrTask(m, workersToManagerQueueUrl, managerToWorkersQueueUrl);
+                    }
                 } catch(Exception e){
                     GeneralUtils.printStackTrace(e, generalUtils);
                     generalUtils.logPrint("Error in main: handleOcrTask failed, continuing...");
@@ -84,8 +98,6 @@ public class Worker {
         }
         generalUtils.logPrint("Task finished successfully, sending result to manager");
         generalUtils.logPrint("URL: "+ inputUrl);
-        generalUtils.logPrint("RESULT: "+ ocrResult);
-
 
         //delete ocr task message from queue - only if OCR was successful!
         //if deletion fails because message was already deleted, continue to next message without submitting result
@@ -157,5 +169,17 @@ public class Worker {
             return "";
         }
         return downloadFilePath;
+    }
+
+    private static void terminateSequence(Message m) {
+        generalUtils.logPrint("Instance terminating");
+
+        deleteMessageFromQueue(m, managerToWorkersQueueUrl);
+
+        if(!ec2.terminateInstances(Stream.of(instanceId).collect(Collectors.toList()))){
+            generalUtils.logPrint("Instance couldn't terminate");
+            System.exit(1);
+        }
+        generalUtils.logPrint("worker didn't terminate it self");
     }
 }

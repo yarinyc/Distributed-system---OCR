@@ -47,7 +47,7 @@ public class LocalApplication {
     // TODO check how to encrypt credentials
     // TODO add documentation in manager fields
     // TODO add in manager DAEMON thread to update number of current running worker nodes
-    // TODO num of threads : number of processesors * 2
+    // num of threads : number of processors * 2
 
     // TODO run multiple test cases:
     // TODO -> 1 worker, 3 workers, 8 workers, long input, short input, ->
