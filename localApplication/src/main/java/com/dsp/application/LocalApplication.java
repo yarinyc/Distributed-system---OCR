@@ -57,6 +57,9 @@ public class LocalApplication {
 
         //init generalUtils object
         generalUtils = new GeneralUtils();
+
+        generalUtils.logPrint("Local application started");
+
         //mapper object to convert jackson file to java hashmap
         mapper = new ObjectMapper();
 

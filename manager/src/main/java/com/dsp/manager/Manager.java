@@ -123,7 +123,7 @@ public class Manager {
         }
 
         ScheduledExecutorService loadBalanceExecutor = new ScheduledThreadPoolExecutor(1);
-        loadBalanceExecutor.schedule(()->{
+        loadBalanceExecutor.scheduleAtFixedRate(()->{
             try {
                 generalUtils.logPrint("Load balancing...");
                 loadBalance(n);
@@ -131,7 +131,7 @@ public class Manager {
                 GeneralUtils.printStackTrace(e, generalUtils);
                 generalUtils.logPrint("Error in load balance daemon thread");
             }
-        }, 3, TimeUnit.SECONDS);
+        }, 3, 3, TimeUnit.SECONDS);
 
         while (shutdownCounter.get() != NUM_OF_THREADS || !completedSubTasksCounters.isEmpty()){
             //poll queue for results
