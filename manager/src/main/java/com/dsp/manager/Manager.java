@@ -291,7 +291,7 @@ public class Manager {
             sizeOfCurrentInput += urlList.size();
         }
 
-        generalUtils.logPrint("Distributing " + sizeOfCurrentInput + "subtasks to workers queue");
+        generalUtils.logPrint("Distributing " + sizeOfCurrentInput + " subtasks to workers queue");
 
         //check there is a sufficient number of workers
         //loadBalance(n);
@@ -332,7 +332,7 @@ public class Manager {
             numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
             Filter filter = Filter.builder()
                     .name("instance-state-name")
-                    .values("running")
+                    .values("running","pending")
                     .build();
             numOfActiveWorkers = ec2.getNumberOfWorkerInstances(filter);
 
