@@ -111,7 +111,7 @@ public class Manager {
                 while (shouldRun.get()){
                     List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
                     try {
-                        handleMessage(messages, shouldRun);
+                        handleMessage(n, messages, shouldRun);
                     } catch (Exception e){
                         GeneralUtils.printStackTrace(e, generalUtils);
                         generalUtils.logPrint("Error in listener thread: handleMessage failed, continuing...");
@@ -242,7 +242,7 @@ public class Manager {
         }
     }
 
-    private static void handleMessage(List<Message> messages,AtomicBoolean shouldRun) {
+    private static void handleMessage(int n, List<Message> messages,AtomicBoolean shouldRun) {
         if(!messages.isEmpty()){
             Message message = messages.get(0);
             String body = message.body();
@@ -259,7 +259,7 @@ public class Manager {
                 String queueUrl = message.messageAttributes().get("managerToLocalQueueUrl").stringValue();
                 managerToLocalQueues.put(body, queueUrl);
                 //break up task to subtasks and send to workers
-                distributeTasks(messages, body); // body is the localAppID
+                distributeTasks(n, messages, body); // body is the localAppID
             }
         }
         else{
@@ -271,7 +271,7 @@ public class Manager {
         }
     }
 
-    private static void distributeTasks(List<Message> messages, String localAppID) {
+    private static void distributeTasks(int n, List<Message> messages, String localAppID) {
         String inputFilePath = localAppID +"_input.txt";
         if(!s3.getObject(s3BucketName, localAppID, inputFilePath)) { // body is the key in s3
             generalUtils.logPrint("Error downloading input file from s3");
@@ -287,7 +287,7 @@ public class Manager {
         generalUtils.logPrint("Distributing " + sizeOfCurrentInput + "subtasks to workers queue");
 
         //check there is a sufficient number of workers
-//        loadBalance(n);
+        loadBalance(n);
         //send url tasks to workers
         sendTasks(localAppID, urlList);
         //delete task message from queue (we just sent all subtasks to the workers)
@@ -323,39 +323,39 @@ public class Manager {
         synchronized (lock) {
             numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput / n) + 1;
             numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
-        }
-        Filter filter = Filter.builder()
-                .name("instance-state-name")
-                .values("running")
-                .build();
-        numOfActiveWorkers = ec2.getNumberOfWorkerInstances(filter);
+            Filter filter = Filter.builder()
+                    .name("instance-state-name")
+                    .values("running")
+                    .build();
+            numOfActiveWorkers = ec2.getNumberOfWorkerInstances(filter);
 
-        if(numOfWorkersNeeded <= numOfActiveWorkers){
-            generalUtils.logPrint("In loadBalance: No extra workers needed. currently #" + numOfActiveWorkers );
-            if(numOfWorkersNeeded == 0){
-                noActivityCounter++;
-                generalUtils.logPrint("numOfWorkersNeeded is 0, noActivityCounter is " + noActivityCounter);
+            if(numOfWorkersNeeded <= numOfActiveWorkers){
+                generalUtils.logPrint("In loadBalance: No extra workers needed. currently #" + numOfActiveWorkers );
+//                if(numOfWorkersNeeded == 0){
+//                    noActivityCounter++;
+//                    generalUtils.logPrint("numOfWorkersNeeded is 0, noActivityCounter is " + noActivityCounter);
+//                }
+//                if(noActivityCounter == 20){
+//                    generalUtils.logPrint("No activity for over 60 seconds, terminating all workers");
+//                    terminateEc2();
+//                    noActivityCounter = 0;
+//                }
+                return;
             }
-            if(noActivityCounter == 20){
-                generalUtils.logPrint("No activity for over 60 seconds, terminating all workers");
-                terminateEc2();
-                noActivityCounter = 0;
-            }
-            return;
-        }
-        noActivityCounter = 0;
-        int delta = numOfWorkersNeeded - numOfActiveWorkers;
-        generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (before) #" + numOfActiveWorkers );
-        String userData = createWorkerScript();
-        List<Instance> instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
-        if(instances != null){
-            for (Instance instance : instances) {
-                if(!ec2.createTag("Name", "worker", instance.instanceId())){
-                    generalUtils.logPrint("Error in manager: loadBalance ec2.createTag with instance Id: " + instance.instanceId());
+            noActivityCounter = 0;
+            int delta = numOfWorkersNeeded - numOfActiveWorkers;
+            generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (before) #" + numOfActiveWorkers );
+            String userData = createWorkerScript();
+            List<Instance> instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
+            if(instances != null){
+                for (Instance instance : instances) {
+                    if(!ec2.createTag("Name", "worker", instance.instanceId())){
+                        generalUtils.logPrint("Error in manager: loadBalance ec2.createTag with instance Id: " + instance.instanceId());
+                    }
                 }
             }
+            generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (after) #" + numOfWorkersNeeded );
         }
-        generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (after) #" + numOfWorkersNeeded );
     }
 
     private static void terminateSequence() {
