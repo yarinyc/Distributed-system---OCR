@@ -122,16 +122,23 @@ public class Manager {
             });
         }
 
-//        ScheduledExecutorService loadBalanceExecutor = new ScheduledThreadPoolExecutor(1);
-//        loadBalanceExecutor.scheduleAtFixedRate(()->{
-//            try {
-//                generalUtils.logPrint("Load balancing...");
-//                loadBalance(n);
-//            } catch(Exception e){
-//                GeneralUtils.printStackTrace(e, generalUtils);
-//                generalUtils.logPrint("Error in load balance daemon thread");
-//            }
-//        }, 3, 3, TimeUnit.SECONDS);
+        ExecutorService loadBalanceExecutor = Executors.newFixedThreadPool(1);
+        loadBalanceExecutor.submit(()->{
+            while(!Thread.interrupted()){
+                try {
+                    generalUtils.logPrint("Load balancing...");
+                    loadBalance(n);
+                } catch (Exception e) {
+                    GeneralUtils.printStackTrace(e, generalUtils);
+                    generalUtils.logPrint("Error in load balance daemon thread");
+                }
+                try {
+                    Thread.sleep(5_000);
+                } catch (InterruptedException e) {
+                    GeneralUtils.printStackTrace(e, generalUtils);
+                }
+            }
+        });
 
         while (shutdownCounter.get() != NUM_OF_THREADS || !completedSubTasksCounters.isEmpty()){
             //poll queue for results
@@ -287,7 +294,7 @@ public class Manager {
         generalUtils.logPrint("Distributing " + sizeOfCurrentInput + "subtasks to workers queue");
 
         //check there is a sufficient number of workers
-        loadBalance(n);
+        //loadBalance(n);
         //send url tasks to workers
         sendTasks(localAppID, urlList);
         //delete task message from queue (we just sent all subtasks to the workers)
@@ -331,15 +338,15 @@ public class Manager {
 
             if(numOfWorkersNeeded <= numOfActiveWorkers){
                 generalUtils.logPrint("In loadBalance: No extra workers needed. currently #" + numOfActiveWorkers );
-//                if(numOfWorkersNeeded == 0){
-//                    noActivityCounter++;
-//                    generalUtils.logPrint("numOfWorkersNeeded is 0, noActivityCounter is " + noActivityCounter);
-//                }
-//                if(noActivityCounter == 20){
-//                    generalUtils.logPrint("No activity for over 60 seconds, terminating all workers");
-//                    terminateEc2();
-//                    noActivityCounter = 0;
-//                }
+                if(numOfWorkersNeeded == 0){
+                    noActivityCounter++;
+                    generalUtils.logPrint("numOfWorkersNeeded is 0, noActivityCounter is " + noActivityCounter);
+                }
+                if(noActivityCounter == 20){
+                    generalUtils.logPrint("No activity for over 60 seconds, terminating all workers");
+                    terminateEc2();
+                    noActivityCounter = 0;
+                }
                 return;
             }
             noActivityCounter = 0;
