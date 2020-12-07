@@ -27,6 +27,17 @@ EC2 configurations we used:
 
 
 Running times: TODO add runtimes + ami and instance type used + n parameter we used
+2) Short input file - 3:46
+   Input file - short_input.txt
+   Ami - ami-070ffc5b3faabe7cf
+   Instance type - T2_MICRO
+   N parameter - 4
+
+2) Long input file - 9:15
+   Input file - long_input.txt
+   Ami - ami-070ffc5b3faabe7cf
+   Instance type - T2_MICRO
+   N parameter - 100
 
 
 Our implementation:

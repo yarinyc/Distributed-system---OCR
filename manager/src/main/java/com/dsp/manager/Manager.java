@@ -342,7 +342,7 @@ public class Manager {
                     noActivityCounter++;
                     generalUtils.logPrint("numOfWorkersNeeded is 0, noActivityCounter is " + noActivityCounter);
                 }
-                if(noActivityCounter == 20){
+                if(noActivityCounter == 60){
                     generalUtils.logPrint("No activity for over 60 seconds, terminating all workers");
                     terminateEc2();
                     noActivityCounter = 0;
