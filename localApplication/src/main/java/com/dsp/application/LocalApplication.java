@@ -43,15 +43,17 @@ public class LocalApplication {
     private static int n;
     private static ObjectMapper mapper;
 
-    // TODO write detailed README.md
-    // TODO check how to encrypt credentials
-    // TODO add documentation in manager fields
-    // TODO add in manager DAEMON thread to update number of current running worker nodes
+    // TODO write detailed README.md -> DONE
+    // TODO check how to encrypt credentials -> DONE (?)
+    // TODO add documentation in manager fields -> DONE
+    // TODO add in manager DAEMON thread to update number of current running worker nodes -> DONE
+    // TODO check if we can terminate and specific number of worker in daemon (instead of all workers)
+    // TODO check for warnings
     // num of threads : number of processors * 2
 
     // TODO run multiple test cases:
-    // TODO -> 1 worker, 3 workers, 8 workers, long input, short input, ->
-    // TODO -> with/without jar upload, * all cases above with multiple local apps * ->
+    // TODO -> 1 worker, 3 workers, 8 workers, long input, short input, -> DONE
+    // TODO -> with/without jar upload, * all cases above with multiple local apps * -> DONE
 
     public static void main(String[] args){
 

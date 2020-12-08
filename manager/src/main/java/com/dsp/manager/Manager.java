@@ -51,21 +51,23 @@ public class Manager {
     private static Map<String, Map<String, List<String>>> tasksResults;
     //hashmap in which key is LocalAppID and value is a counter of completed subtasks
     private static Map<String, AtomicInteger> completedSubTasksCounters;
+    //hashmap for storing managerToLocal queues for all different local apps
     private static Map<String, String> managerToLocalQueues;
-    // count the number of times each url appears in the input file for a specific localAppID
+    //count the number of times each url appears in the input file for a specific localAppID
     private static Map<String, Integer> urlCounters;
-
+    //number of running worker nodes
     private static Integer numOfActiveWorkers;
+    //number of total subtasks in the system
     private static Integer sizeOfCurrentInput;
     private static final Object lock = new Object();
-
+    //config fields
     private static String arn;
     private static String ami;
     private static String s3BucketName;
     private static String keyName;
     private static boolean shouldDeleteS3;
-
-    private static int noActivityCounter = 0; // counter for the load balance daemon
+    // counter for the load balance daemon thread
+    private static int noActivityCounter = 0;
 
     public static void main(String[] args) {
 
@@ -293,12 +295,13 @@ public class Manager {
 
         generalUtils.logPrint("Distributing " + sizeOfCurrentInput + " subtasks to workers queue");
 
-        //check there is a sufficient number of workers
+        //check there is a sufficient number of workers -> this job was moved to the daemon thread!
         //loadBalance(n);
+
         //send url tasks to workers
         sendTasks(localAppID, urlList);
         //delete task message from queue (we just sent all subtasks to the workers)
-        if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){  //TODO heavy task, maybe move deletion to before this function
+        if(!sqs.deleteMessages(messages, localToManagerQueueUrl)){
             generalUtils.logPrint("Error at deleting task message from localToManagerQueue");
             System.exit(1); // Fatal Error
         }
@@ -310,7 +313,6 @@ public class Manager {
         completedSubTasksCounters.put(localAppID, new AtomicInteger(0)); //so far there are 0 completed subtasks(urls) of localAppID
         urlCounters.put(localAppID, urlList.size());
         for (String url: urlList) {
-            //subTasksResult.put(url, "####default-value####");
             subTasksResult.put(url, Collections.synchronizedList(new ArrayList<>()));
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
@@ -324,7 +326,7 @@ public class Manager {
         tasksResults.put(localAppID, subTasksResult); // we add a new results hashmap of LocalAppID
     }
 
-    // checks if there are enough workers running, if not creates them.
+    //checks if there are enough workers running, if not creates them
     private static void loadBalance(int n) {
         int numOfWorkersNeeded;
         synchronized (lock) {
