@@ -6,37 +6,38 @@ First, using the aws console:
 2) Create a key pair.
 
 Second, fill in the following details in the file config.txt (located in the resources folder):
-1) Desired S3 bucket name (for example my-s3bucket)
-2) Desired SQS queue name for communication between the local application to the manager node(for example localToManagerSQS_Name)
+1) Desired S3 bucket name (for example "my-s3bucket")
+2) Desired SQS queue name for communication between the local application to the manager node(for example "localToManagerSQS_Name")
 3) Arn of the IAM role created in the first step
 4) Key pair name created in the first step
 5) Ami to use when creating new instances
 
 Third, in the command line terminal:
-1) run "cd" to absolute path of the project's folder
-2) run "java -jar localApplication.jar inputFileName outputFileName n ["terminate"]" where:
+1) open a terminal in the project's folder
+2) run 'mvn clean install', to compile the project. 3 jars will be created in the jars folder
+2) run "java -jar jars/localApplication.jar inputFileName outputFileName n ["terminate"]" where:
    1) inputFileName may be the path to your input file
    2) outputFileName is the name of the final output HTML file to be saved in the outputs folder
    3) n is the number of tasks per worker
    4) last argument ("terminate") is optional - if present the program will terminate all running ec2 instances + all SQS queues
 
 EC2 configurations we used:
-1) Ami - ami-070ffc5b3faabe7cf
+1) Ami - ami-070ffc5b3faabe7cf (ubuntu 20.04  + aws cli v2 + jdk 8 + tesseract)
 2) Instance type - "T2_MICRO"
 3) Region - "US_EAST_1"
 
 
-Running times: TODO add runtimes + ami and instance type used + n parameter we used
+Running times:
 *Note: In effect there were always at most 9 instances running, due to limitations of the aws student account
 
 2) Short input file - 3:46
-   Input file - short_input.txt
+   Input file - inputs/short_input.txt
    Ami - ami-070ffc5b3faabe7cf
    Instance type - T2_MICRO
    N parameter - 4
 
 2) Long input file - 21:36
-   Input file - long_input.txt
+   Input file - inputs/long_input.txt
    Ami - ami-070ffc5b3faabe7cf
    Instance type - T2_MICRO
    N parameter - 375
@@ -48,9 +49,10 @@ The project consists of 3 key classes: LocalApplication, Manager and Worker:
 
 1) Local Application:
    At the beginning, the localApp will upload the input file + the manager and worker jars to the S3 bucket (initializing the bucket before if needed).
+   *notice that the time of uploading a file to s3 depends on your own internet upload speed.
    It will also create the needed SQS queues.
    Then it will do the following:
-   1) Check wether there is a manager node already running. If not, it will initialize a manger ec2 node to start running.
+   1) Check whether there is a manager node already running. If not, it will initialize a manger ec2 node to start running.
    2) Send a task message to the manager (sent using the shared localToManagerSQS queue)
    3) Wait for a response from the manager (polling it's own unique ManagerToLocalSQS queue)
    3) Upon response if all went well, download results file from the S3 bucket
@@ -60,7 +62,7 @@ The project consists of 3 key classes: LocalApplication, Manager and Worker:
    *Communication: All localApps share the same SQS queue for communication to the manager (giving it new tasks). Each localApp has it's own SQS queue for communication from the manager.
 
 2) Manager:
-   The manager uses an executor to handle new task messages sent by the localApps.
+   The manager uses a thread pool executor to handle new task messages sent by the localApps.
    Executor threads (we used a fixed number) will poll the SQS queue for tasks, and upon receiving a new task message do the following:
    1) Download tbe input file from S3 bucket
    2) Read all lines in the input file and then run a function (loadBalance) which checks there are enough worker ec2 nodes running (if there are not enough we initialize them)
@@ -69,11 +71,16 @@ The project consists of 3 key classes: LocalApplication, Manager and Worker:
    The main thread of the manager is doing a different job: poll another SQS queue for results to subtasks from the workers, and upon getting the final subtask result for some localApp,
    we send the final results of all the relevant urls back to the localApp unique SQS queue.
 
-   Upon receiving a "terminate" message, the manager will stop the executor threads from taking more new tasks from the queue and wait for all workers to be done.
-   If needed it will terminate itself and all worker ec2 nodes and in addition it will send all localApps a message regarding it's termination.
+   Upon receiving a "terminate" message, the manager will stop the executor threads from taking new tasks from the queue and wait for all workers to be done with all current unfinished distributed subtasks.
+   Then it will terminate itself and all worker ec2 nodes and in addition it will send to the relevant localApps a message regarding it's termination (to avoid waiting for a result from the manager).
 
-   *Communication: with the localApps - 1 shared queue for messages from the localApps, and each has it's own SQS queue for messages send to each localApp
+   *Communication: with the localApps - 1 shared queue for messages from the localApps, and each has it's own SQS queue for messages sent to each localApp
        	           with the workers - 1 shared queue for messages from the workers, and 1 shared queue for messages to the workers
+
+   *Load balancing: In order to make sure we have enough ec2 workers at any given time, we created a daemon thread that runs in the background and always makes sure there is enough
+   workers running, with respect to the current number of subtasks. If for some reason there are not enough workers it will initialize new worker nodes.
+   This also compensates in case any of the worker nodes will crash in an unexpected way.
+   In addition if for over 5 minutes there are no subtasks in the sqs queue, the daemon thread will kill all workers to conserve resources.
 
 3) Worker:
    The worker node simply runs indefinitely in a loop and does the following:
@@ -96,28 +103,29 @@ Mandatory Requirements:
      bucket, relieving the manager main thread to attend to some other work.
      We made sure to start up new worker nodes when needed, in order to handle more url tasks.
      In reality, in order to make the system more robust and scale up to millions of users, we would suggest using multiple
-     manager nodes, using a database instead of handling files locally, and perhaps introduce new worker nodes whose
+     manager nodes, using a database instead of handling results/data structures in memory (for example hashmaps in the manager), and perhaps introduce new worker nodes whose
      mission would be to create the final summary file, instead of the manager as it is in our implementation.
 
   2) Security:
-     In terms of security, we made sure to never save our aws credentials hard-coded in the source code.
+     In terms of security, we made sure to never save our aws credentials or any aws resources names hard-coded in the source code.
      In addition we never send them as plain text. The user must provide their own arn and keypair in the config file.
 
   3) Persistence:
      If any error occurs in the worker nodes, the manager is notified of it. If a worker node dies, a daemon thread of
-     the manager will notice it and start a new worker node instead. If the manager node dies, all local apps are
+     the manager will notice it and start a new worker node instead. If the manager node dies, all relevant local apps are
      notified too. In addition, we only deleted a subtask from an SQS queue only when we had a result (successful or
      unsuccessful), so that in case of a failure of some worker node while working on a subtask, other worker nodes may
      handle the subtask again as soon as the visibility timeout runs out.
+     In any case that more then one worker works on the same subtask (due to sqs visibility timeout),
+     only the result from the first worker that finishes that subtask will be sent to the manager.
 
   4) Using threads:
      We used multi-threading only when we found it necessary. Therefore the only place which we used multiple threads
-     was in the manager source code. The worker source code was relatively short and simple, and we decided that using
-     multi-threading would not be beneficial.
+     was in the manager source code.
      In the manager we used three executors, while the main thread can attend to other work:
-     1) An executor responsible to respond to new requests from multiple local apps all at once
-     2) An executor responsible to create summary file results for local apps
-     3) An executor responsible to check there are always enough active workers
+     1) An executor responsible to respond to new requests from multiple local apps all at once.
+     2) An executor responsible to create summary file results for local apps.
+     3) An executor responsible to check there are always enough active workers.
 
    5) Termination:
       If a "terminate" argument is given by some local app, we made sure to go through a termination sequence, in which
@@ -126,7 +134,7 @@ Mandatory Requirements:
       In addition, if there is a need to send summary files to some local apps we do so before shutting down the manager
       node. We also made sure any temporary files saved locally or on the S3 bucket by the manager\worker\local apps to be
       deleted. We also delete all SQS queues, and supply an option to delete the S3 bucket as well if wanted (decided by
-      us in the manager source code).
+      us in the manager source code, default is to delete).
 
 
 
