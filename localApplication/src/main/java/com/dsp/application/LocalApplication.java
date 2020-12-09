@@ -67,7 +67,6 @@ public class LocalApplication {
             shouldTerminate = true;
         }
 
-
         //init configuration object
         config = new LocalAppConfiguration();
 
@@ -76,9 +75,6 @@ public class LocalApplication {
         s3 = new S3client();
         sqs = new SQSClient();
 
-        List<Instance> instances = ec2.createEC2Instances(config.getAmi(), config.getAwsKeyPair(), 1, 1, createManagerScript(), config.getArn(), config.getInstanceType());
-        String instanceId = instances.get(0).instanceId();
-        System.exit(0);
         s3BucketName = config.getS3BucketName();
 
         //check if manager node is up, if not we will start it and all relevant aws services
@@ -173,7 +169,7 @@ public class LocalApplication {
             HashMap<String, AtomicInteger> resultCounters = mapper.readValue(mapJsonString.get(0), mapType1);
 
             MapType mapType2 = typeFactory.constructMapType(HashMap.class, String.class, String.class);
-            HashMap<String, String> uidToUrl = mapper.readValue(mapJsonString.get(0), mapType2);
+            HashMap<String, String> uidToUrl = mapper.readValue(mapJsonString.get(1), mapType2);
 
             //build html string
             StringBuilder ocrResults = new StringBuilder();
@@ -254,7 +250,6 @@ public class LocalApplication {
                 }
             }
         }
-
         //check s3 and sqs services (bucket and 2 queues) are created, if not we create them
         initServices();
 
@@ -294,13 +289,9 @@ public class LocalApplication {
     private static String createManagerScript() {
         String userData = "";
         userData = userData + "#!/bin/bash\n";
-        userData = userData + "sudo mkdir /jars/\n";
-        userData = userData + "sudo aws s3 cp s3://" + s3BucketName + "/jars/manager.jar /jars/\n";
-        userData = userData + "sudo aws s3 cp s3://" + s3BucketName + "/jars/worker.jar /jars/";
-
-//        userData += String.format("sudo java -jar /jars/manager.jar %s %s %s %s %s %s",
-//                config.getLocalToManagerQueueName(), config.getS3BucketName(),
-//                config.getAmi(), config.getArn(), config.getAwsKeyPair(), DELETE_S3);
+        userData += String.format("sudo java -jar /jars/manager.jar %s %s %s %s %s %s",
+                config.getLocalToManagerQueueName(), config.getS3BucketName(),
+                config.getAmi(), config.getArn(), config.getAwsKeyPair(), DELETE_S3);
 
         return GeneralUtils.toBase64(userData);
     }

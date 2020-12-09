@@ -2,4 +2,4 @@ s3bucket-d797b2f9e96963c2
 localToManagerSQS_d797b2f9e96963c2
 arn:aws:iam::322970830450:instance-profile/ec2_role_full_access
 ec2key_dsp1
-ami-0391334e6a4d090d6
+ami-0949f11b047f16668
