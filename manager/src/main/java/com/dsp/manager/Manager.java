@@ -46,19 +46,23 @@ public class Manager {
     private static String managerToWorkersQueueUrl;
     private static String workersToManagerQueueUrl;
 
-    //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=result of url
-    //each localApp has it's own hashmap (Inner hashmap) of task results
-    private static Map<String, Map<String, List<String>>> tasksResults;
+    //hashmap of hashmaps: Outer hashmap: key=localAppID, value=Inner hashmap: key=url of task, value=url counters
+    private static Map<String, Map<String, AtomicInteger>> urlCounters;
+
+    private static Map<String, Map<String, String>> uniqueIDToUrlMap;
     //hashmap in which key is LocalAppID and value is a counter of completed subtasks
     private static Map<String, AtomicInteger> completedSubTasksCounters;
     //hashmap for storing managerToLocal queues for all different local apps
     private static Map<String, String> managerToLocalQueues;
-    //count the number of times each url appears in the input file for a specific localAppID
-    private static Map<String, Integer> urlCounters;
+    //hashmap for all the input sizes of each localAppID
+    private static Map<String, Integer> localAppInputSizes;
+    //hashmap for the number of workers needed per local app
+    private static Map<String, Integer> workersNeededPerApp;
+
     //number of running worker nodes
     private static Integer numOfActiveWorkers;
     //number of total subtasks in the system
-    private static Integer sizeOfCurrentInput;
+//    private static Integer sizeOfCurrentInput;
     private static final Object lock = new Object();
     //config fields
     private static String arn;
@@ -66,19 +70,16 @@ public class Manager {
     private static String s3BucketName;
     private static String keyName;
     private static boolean shouldDeleteS3;
-    // counter for the load balance daemon thread
-    private static int noActivityCounter = 0;
 
     public static void main(String[] args) {
 
         //get data from args
-        int n = Integer.parseInt(args[0]);
-        String localToManagerQueueName = args[1];
-        s3BucketName = args[2];
-        ami = args[3];
-        arn = args[4];
-        keyName = args[5];
-        shouldDeleteS3 = Boolean.parseBoolean(args[6]);
+        String localToManagerQueueName = args[0];
+        s3BucketName = args[1];
+        ami = args[2];
+        arn = args[3];
+        keyName = args[4];
+        shouldDeleteS3 = Boolean.parseBoolean(args[5]);
 
         //init AWS clients
         generalUtils = new GeneralUtils();
@@ -96,11 +97,12 @@ public class Manager {
         workersToManagerQueueUrl = GeneralUtils.initSqs(WORKERS_TO_MANAGER_QUEUE_NAME, sqs);
 
         numOfActiveWorkers = 0;
-        sizeOfCurrentInput = 0;
+        uniqueIDToUrlMap = new ConcurrentHashMap<>();
+        workersNeededPerApp = new ConcurrentHashMap<>();
         completedSubTasksCounters = new ConcurrentHashMap<>();
-        tasksResults = new ConcurrentHashMap<>();
-        managerToLocalQueues = new ConcurrentHashMap<>();
         urlCounters = new ConcurrentHashMap<>();
+        managerToLocalQueues = new ConcurrentHashMap<>();
+        localAppInputSizes = new ConcurrentHashMap<>();
 
         AtomicInteger shutdownCounter = new AtomicInteger(0);
         AtomicBoolean shouldRun = new AtomicBoolean(true);
@@ -113,7 +115,7 @@ public class Manager {
                 while (shouldRun.get()){
                     List<Message> messages = sqs.getMessages(localToManagerQueueUrl, 1);
                     try {
-                        handleMessage(n, messages, shouldRun);
+                        handleMessage(messages, shouldRun);
                     } catch (Exception e){
                         GeneralUtils.printStackTrace(e, generalUtils);
                         generalUtils.logPrint("Error in listener thread: handleMessage failed, continuing...");
@@ -124,19 +126,15 @@ public class Manager {
             });
         }
 
+        // check periodically that there are enough workers running
         ExecutorService loadBalanceExecutor = Executors.newFixedThreadPool(1);
-        loadBalanceExecutor.submit(()->{
-            while(!Thread.interrupted()){
+        loadBalanceExecutor.submit(()-> {
+            while(shouldRun.get()) {
+                checkWorkerBalance();
                 try {
-                    generalUtils.logPrint("Load balancing...");
-                    loadBalance(n);
-                } catch (Exception e) {
-                    GeneralUtils.printStackTrace(e, generalUtils);
-                    generalUtils.logPrint("Error in load balance daemon thread");
-                }
-                try {
-                    Thread.sleep(5_000);
+                    Thread.sleep(30_000);
                 } catch (InterruptedException e) {
+
                     GeneralUtils.printStackTrace(e, generalUtils);
                 }
             }
@@ -168,6 +166,40 @@ public class Manager {
         // END OF MAIN
     }
 
+    private static void checkWorkerBalance() {
+        int delta;
+        List<Instance> instances;
+        int numOfWorkersNeeded = 0;
+        try {
+            numOfWorkersNeeded = Collections.max(workersNeededPerApp.values());
+        } catch (NoSuchElementException e) {
+            GeneralUtils.printStackTrace(e,generalUtils);
+        }
+        Filter filter = Filter.builder()
+                .name("instance-state-name")
+                .values("running", "pending")
+                .build();
+        synchronized (lock) {
+            numOfActiveWorkers = ec2.getNumberOfWorkerInstances(filter);
+
+            if (numOfWorkersNeeded <= numOfActiveWorkers) {
+                generalUtils.logPrint("In loadBalance: No extra workers needed. currently #" + numOfActiveWorkers);
+                return;
+            }
+            delta = numOfWorkersNeeded - numOfActiveWorkers;
+            generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (before) #" + numOfActiveWorkers);
+            String userData = createWorkerScript();
+            instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
+        }
+        if (instances != null) {
+            for (Instance instance : instances) {
+                if (!ec2.createTag("Name", "worker", instance.instanceId())) {
+                    generalUtils.logPrint("Error in manager: loadBalance ec2.createTag with instance Id: " + instance.instanceId());
+                }
+            }
+        }
+    }
+
     private static void handleResultMessage(Message m) {
         Map<String, MessageAttributeValue> attributes = m.messageAttributes();
         String localAppID = attributes.get("LocalAppID").stringValue();
@@ -180,20 +212,22 @@ public class Manager {
             generalUtils.logPrint("Received WORKER EXCEPTION");
         }
 
-        //add result to hashmap + update counter of completed tasks of localAppID
-        tasksResults.get(localAppID).get(url).add(result);
+        //increment the counter for this url subtask
+        urlCounters.get(localAppID).get(url).incrementAndGet();
 
+        String uid = GeneralUtils.getUniqueID();
+        uniqueIDToUrlMap.get(localAppID).put(uid, url);
+        if(!s3.putObjectFromMemory(s3BucketName,localAppID+"_result/results/"+uid, result)){
+            generalUtils.logPrint("Error in putting url result to s3: " + url);
+        }
         int new_count = completedSubTasksCounters.get(localAppID).incrementAndGet();
-        //completedSubTasksCounters.put(localAppID,new_count);
 
         //check if now all subtasks of localAppID are done
-        if(new_count == urlCounters.get(localAppID)){
+        if(new_count == localAppInputSizes.get(localAppID)){
             generalUtils.logPrint("Completing task for local app ID: " + localAppID);
-            synchronized (lock){
-                sizeOfCurrentInput -= urlCounters.get(localAppID);
-            }
             completedSubTasksCounters.remove(localAppID); //delete counter, task is done
-            urlCounters.remove(localAppID);
+            localAppInputSizes.remove(localAppID);
+            workersNeededPerApp.remove(localAppID);
             generalUtils.logPrint("Submitting task result to resultExecutor" + localAppID);
 
             resultExecutor.submit(()-> createSendSummaryFile(localAppID));
@@ -221,10 +255,11 @@ public class Manager {
         }
         BufferedWriter out = new BufferedWriter(fStream);
 
-        String jsonResult = JacksonUtils.toJsonString(tasksResults.get(localAppID));
+        String counterJson = JacksonUtils.toJsonString(urlCounters.get(localAppID));
+        String uidJson = JacksonUtils.toJsonString(uniqueIDToUrlMap.get(localAppID));
 
         try {
-            out.write(jsonResult);
+            out.write(counterJson+"\n"+uidJson);
             out.flush();
             out.close();
         } catch (IOException e) {
@@ -244,14 +279,16 @@ public class Manager {
             generalUtils.logPrint("Error in createSendSummaryFile: sqs.sendMessage");
             System.exit(1); // Fatal Error
         }
-        tasksResults.remove(localAppID); // delete sub tasks map
+        urlCounters.remove(localAppID); // delete url counters map
         managerToLocalQueues.remove(localAppID); // delete queue url from map
+        uniqueIDToUrlMap.remove(localAppID);
+
         if(!new File(localAppID+"_result.txt").delete()){
             generalUtils.logPrint("Error in createSendSummaryFile: summary file deletion");
         }
     }
 
-    private static void handleMessage(int n, List<Message> messages,AtomicBoolean shouldRun) {
+    private static void handleMessage(List<Message> messages,AtomicBoolean shouldRun) {
         if(!messages.isEmpty()){
             Message message = messages.get(0);
             String body = message.body();
@@ -268,6 +305,8 @@ public class Manager {
                 String queueUrl = message.messageAttributes().get("managerToLocalQueueUrl").stringValue();
                 managerToLocalQueues.put(body, queueUrl);
                 //break up task to subtasks and send to workers
+                int n = Integer.parseInt(message.messageAttributes().get("N").stringValue());
+
                 distributeTasks(n, messages, body); // body is the localAppID
             }
         }
@@ -289,14 +328,11 @@ public class Manager {
         List<String> urlList = parseInputFile(inputFilePath);
         //filter any unwanted strings
         urlList = urlList.stream().filter(url-> !(url.equals("") || url.equals("\n"))).collect(Collectors.toList());
-        synchronized (lock){
-            sizeOfCurrentInput += urlList.size();
-        }
 
-        generalUtils.logPrint("Distributing " + sizeOfCurrentInput + " subtasks to workers queue");
+        generalUtils.logPrint("Distributing " + urlList.size() + " subtasks to workers queue");
 
-        //check there is a sufficient number of workers -> this job was moved to the daemon thread!
-        //loadBalance(n);
+        //check there is a sufficient number of workers
+        loadBalance(n, urlList.size(), localAppID);
 
         //send url tasks to workers
         sendTasks(localAppID, urlList);
@@ -309,11 +345,12 @@ public class Manager {
 
     //sends url tasks to workers
     private static void sendTasks(String localAppID, List<String> urlList) {
-        Map<String, List<String>> subTasksResult = new ConcurrentHashMap<>();
+        Map<String, AtomicInteger> subTasksCounters = new ConcurrentHashMap<>();
+        Map<String, String> uidToUrlMap = new ConcurrentHashMap<>();
         completedSubTasksCounters.put(localAppID, new AtomicInteger(0)); //so far there are 0 completed subtasks(urls) of localAppID
-        urlCounters.put(localAppID, urlList.size());
+        localAppInputSizes.put(localAppID, urlList.size());
         for (String url: urlList) {
-            subTasksResult.put(url, Collections.synchronizedList(new ArrayList<>()));
+            subTasksCounters.put(url, new AtomicInteger(0));
             HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
             attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
             attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("Worker").build());
@@ -323,48 +360,43 @@ public class Manager {
                 System.exit(1); // Fatal Error
             }
         }
-        tasksResults.put(localAppID, subTasksResult); // we add a new results hashmap of LocalAppID
+        urlCounters.put(localAppID, subTasksCounters); // we add a new results hashmap of LocalAppID
+        uniqueIDToUrlMap.put(localAppID, uidToUrlMap);
     }
 
     //checks if there are enough workers running, if not creates them
-    private static void loadBalance(int n) {
+    private static void loadBalance(int n, int sizeOfCurrentInput, String localAppID) {
         int numOfWorkersNeeded;
+        int delta;
+        List<Instance> instances;
+        numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput / n) + 1;
+        numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
+        workersNeededPerApp.put(localAppID, numOfWorkersNeeded);
+
+        Filter filter = Filter.builder()
+                .name("instance-state-name")
+                .values("running","pending")
+                .build();
         synchronized (lock) {
-            numOfWorkersNeeded = sizeOfCurrentInput % n == 0 ? sizeOfCurrentInput / n : (sizeOfCurrentInput / n) + 1;
-            numOfWorkersNeeded = Math.min(numOfWorkersNeeded, MAX_INSTANCES);
-            Filter filter = Filter.builder()
-                    .name("instance-state-name")
-                    .values("running","pending")
-                    .build();
             numOfActiveWorkers = ec2.getNumberOfWorkerInstances(filter);
 
             if(numOfWorkersNeeded <= numOfActiveWorkers){
                 generalUtils.logPrint("In loadBalance: No extra workers needed. currently #" + numOfActiveWorkers );
-                if(numOfWorkersNeeded == 0){
-                    noActivityCounter++;
-                    generalUtils.logPrint("numOfWorkersNeeded is 0, noActivityCounter is " + noActivityCounter);
-                }
-                if(noActivityCounter == 60){
-                    generalUtils.logPrint("No activity for over 300 seconds, terminating all workers");
-                    terminateEc2();
-                    noActivityCounter = 0;
-                }
                 return;
             }
-            noActivityCounter = 0;
-            int delta = numOfWorkersNeeded - numOfActiveWorkers;
+            delta = numOfWorkersNeeded - numOfActiveWorkers;
             generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (before) #" + numOfActiveWorkers );
             String userData = createWorkerScript();
-            List<Instance> instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
-            if(instances != null){
-                for (Instance instance : instances) {
-                    if(!ec2.createTag("Name", "worker", instance.instanceId())){
-                        generalUtils.logPrint("Error in manager: loadBalance ec2.createTag with instance Id: " + instance.instanceId());
-                    }
+            instances = ec2.createEC2Instances(ami, keyName, delta, delta, userData, arn, InstanceType.T2_MICRO);
+        }
+        if(instances != null){
+            for (Instance instance : instances) {
+                if(!ec2.createTag("Name", "worker", instance.instanceId())){
+                    generalUtils.logPrint("Error in manager: loadBalance ec2.createTag with instance Id: " + instance.instanceId());
                 }
             }
-            generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (after) #" + numOfWorkersNeeded );
         }
+        generalUtils.logPrint("In loadBalance: " + delta + " more workers needed. currently (after) #" + numOfWorkersNeeded );
     }
 
     private static void terminateSequence() {
@@ -404,7 +436,7 @@ public class Manager {
     private static void terminateEc2() {
         Filter filter = Filter.builder()
                 .name("instance-state-name")
-                .values("running")
+                .values("running", "pending")
                 .build();
         List<Instance> runningInstances = ec2.getAllInstances(filter);
         //find the running instances
@@ -437,8 +469,6 @@ public class Manager {
     private static String createWorkerScript() {
         String userData = "";
         userData = userData + "#!/bin/bash\n";
-        userData = userData + "sudo mkdir /jars/\n";
-        userData = userData + "sudo aws s3 cp s3://" + s3BucketName + "/jars/worker.jar /jars/\n";
         userData += String.format("sudo java -jar /jars/worker.jar %s %s", managerToWorkersQueueUrl, workersToManagerQueueUrl);
 
         return GeneralUtils.toBase64(userData);

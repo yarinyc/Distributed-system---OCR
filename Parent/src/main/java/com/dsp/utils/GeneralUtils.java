@@ -13,6 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Base64;
 import java.util.Date;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 public class GeneralUtils {
@@ -41,9 +42,9 @@ public class GeneralUtils {
         generalUtils.logPrint(sw.toString() + "\n\tException Message: " + e.getMessage());
     }
 
+    // return a type 4 (pseudo randomly generated) UUID. The UUID is generated using a cryptographically strong pseudo random number generator
     public static String getUniqueID() {
-        long l = new Random().nextLong();
-        return Long.toHexString(l);
+        return UUID.randomUUID().toString().replace("-", "");
     }
 
     public synchronized void logPrint(String msg){

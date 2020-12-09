@@ -1,14 +1,17 @@
 package com.dsp.aws;
 
 import com.dsp.utils.GeneralUtils;
+import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
+import software.amazon.awssdk.services.s3.paginators.ListObjectsV2Iterable;
 
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -74,6 +77,23 @@ public class S3client {
         return true;
     }
 
+    // add a key/value pair to an S3 bucket from given file located in inFilePath.
+    public boolean putObjectFromMemory(String bucketName, String bucketKey, String value) {
+        PutObjectRequest putRequest = PutObjectRequest
+                .builder()
+                .acl(ObjectCannedACL.BUCKET_OWNER_FULL_CONTROL)
+                .bucket(bucketName).key(bucketKey)
+                .build();
+        try {
+            generalUtils.logPrint("putting file in s3 bucket");
+            s3.putObject(putRequest, RequestBody.fromString(value));
+        } catch (Exception e) {
+            GeneralUtils.printStackTrace(e, generalUtils);
+            return false;
+        }
+        generalUtils.logPrint("done putting file in s3 bucket");
+        return true;
+    }
 
     public boolean deleteObject(String bucketName, String bucketKey){
         DeleteObjectRequest deleteObjectRequest = DeleteObjectRequest
@@ -102,6 +122,33 @@ public class S3client {
             return false;
         }
         return true;
+    }
+
+    // read the value of bucketKey in the S3 bucket and save it to the file in outFilePath
+    public String getObjectToMemory(String bucket, String bucketKey) {
+        GetObjectRequest getRequest = GetObjectRequest.builder()
+                .bucket(bucket).key(bucketKey).build();
+        ResponseBytes<GetObjectResponse> result;
+        try {
+            result = s3.getObject(getRequest, ResponseTransformer.toBytes());
+        } catch (Exception e) {
+            GeneralUtils.printStackTrace(e, generalUtils);
+            return null;
+        }
+        return new String(result.asByteArray());
+    }
+
+    public List<String> getAllObjectsKeys(String bucket, String prefix){
+        ListObjectsV2Request request = ListObjectsV2Request.builder().bucket(bucket).prefix(prefix).build();
+        ListObjectsV2Iterable response = s3.listObjectsV2Paginator(request);
+
+        List<String> keys = new ArrayList<>();
+        for (ListObjectsV2Response page : response) {
+            page.contents().forEach((S3Object object) -> {
+                keys.add(object.key());
+            });
+        }
+        return keys;
     }
 
     public List<String> getAllBucketNames(){

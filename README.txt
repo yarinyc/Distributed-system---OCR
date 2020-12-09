@@ -4,6 +4,7 @@ How to run the project:
 First, using the aws console:
 1) Create an IAM role with the following permissions set: EC2FullAccess,S3FullAccess,SQSFullAccess,AdministratorAccess.
 2) Create a key pair.
+3) Make sure your aws credentials and session token are updated in ~/.aws/credentials in your local machine.
 
 Second, fill in the following details in the file config.txt (located in the resources folder):
 1) Desired S3 bucket name (for example "my-s3bucket")
@@ -30,13 +31,13 @@ EC2 configurations we used:
 Running times:
 *Note: In effect there were always at most 9 instances running, due to limitations of the aws student account
 
-2) Short input file - 3:46
+2) Short input file - 3:44
    Input file - inputs/short_input.txt
    Ami - ami-070ffc5b3faabe7cf
    Instance type - T2_MICRO
    N parameter - 4
 
-2) Long input file - 21:36
+2) Long input file - 21:14
    Input file - inputs/long_input.txt
    Ami - ami-070ffc5b3faabe7cf
    Instance type - T2_MICRO
@@ -64,7 +65,7 @@ The project consists of 3 key classes: LocalApplication, Manager and Worker:
 2) Manager:
    The manager uses a thread pool executor to handle new task messages sent by the localApps.
    Executor threads (we used a fixed number) will poll the SQS queue for tasks, and upon receiving a new task message do the following:
-   1) Download tbe input file from S3 bucket
+   1) Download the input file from S3 bucket
    2) Read all lines in the input file and then run a function (loadBalance) which checks there are enough worker ec2 nodes running (if there are not enough we initialize them)
    3) Distribute all url links and send them as subtasks to the worker nodes (using the shared SQS queue with the all worker nodes)
 
