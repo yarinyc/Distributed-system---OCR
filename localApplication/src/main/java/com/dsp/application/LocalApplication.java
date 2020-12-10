@@ -13,9 +13,7 @@ import software.amazon.awssdk.services.ec2.model.Tag;
 import software.amazon.awssdk.services.sqs.model.Message;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -162,8 +160,6 @@ public class LocalApplication {
         int writeThreshold = 0;
         try {
             List<String> mapJsonString = Files.readAllLines(Paths.get("temps", outputFileName+"_"+tempId), StandardCharsets.UTF_8);
-//            FileWriter fStream = new FileWriter("outputs"+ File.separator + outputFileName +".html");
-//            BufferedWriter out = new BufferedWriter(fStream);
 
             File outputFile = new File("outputs"+ File.separator + outputFileName +".html");
             if(!outputFile.createNewFile()){
@@ -184,9 +180,8 @@ public class LocalApplication {
             StringBuilder ocrResults = new StringBuilder();
 
             for(HashMap.Entry<String, String> entry : uidToUrl.entrySet()) {
-//                StringBuilder ocrResults = new StringBuilder();
-                String uid = entry.getKey();
-                String url = entry.getValue();
+                String url = entry.getKey();
+                String uid = entry.getValue();
                 String result = s3.getObjectToMemory(s3BucketName, responseKey+"/results/"+uid);
                 AtomicInteger counter = resultCounters.get(url);
                 for(int i=0; i<counter.get(); i++) {
@@ -205,60 +200,18 @@ public class LocalApplication {
                 }
 
             }
+            if(!ocrResults.toString().isEmpty()){
+                appendToFile("outputs"+ File.separator + outputFileName +".html",ocrResults.toString());
+            }
             String suffix = "</body>\n" + "<html>";
             appendToFile("outputs"+ File.separator + outputFileName +".html",suffix);
-//            writeToFile(out,outputFileName,tempId,suffix);
-//            String htmlOutput =
-//            "<html>\n" +
-//            "<title>OCR</title>\n" +
-//            "<body>\n" + ocrResults +
-//            "</body>\n" +
-//            "<html>";
-
-            //save html string to output file
-//            try {
-//                FileWriter fStream = new FileWriter("outputs"+ File.separator + outputFileName +".html");
-//                BufferedWriter out = new BufferedWriter(fStream);
-//                try {
-//                    out.write(htmlOutput);
-//                    out.flush();
-//                    out.close();
-//                } catch (IOException e) {
-//                    e.printStackTrace();
-//                    generalUtils.logPrint("Error in createHtml: out.write(htmlOutput)" );
-//                }
-//
-//                if(!new File(Paths.get("temps", outputFileName +"_"+ tempId).toString()).delete()){
-//                    generalUtils.logPrint("temp image can't be deleted");
-//                }
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//                generalUtils.logPrint("Error in createHtml: FileWriter(outputs\\outputFileName.html)");
-//            }
-
-//            out.close();
             if(!new File(Paths.get("temps", outputFileName +"_"+ tempId).toString()).delete()){
                 generalUtils.logPrint("temp image can't be deleted");
             }
 
-//            try {
-//                try {
-//                    out.write(htmlOutput);
-//                    out.flush();
-//                    out.close();
-//                } catch (IOException e) {
-//                    e.printStackTrace();
-//                    generalUtils.logPrint("Error in createHtml: out.write(htmlOutput)");
-//                }
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//                generalUtils.logPrint("Error in createHtml: FileWriter(outputs\\outputFileName.html)");
-//            }
-
         } catch (IOException e) {
             e.printStackTrace();
             System.out.println("Error at creating html file");
-            System.exit(1);
         }
     }
 

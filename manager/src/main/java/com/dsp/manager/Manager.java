@@ -216,7 +216,7 @@ public class Manager {
         urlCounters.get(localAppID).get(url).incrementAndGet();
 
         String uid = GeneralUtils.getUniqueID();
-        uniqueIDToUrlMap.get(localAppID).put(uid, url);
+        uniqueIDToUrlMap.get(localAppID).put(url, uid);
         if(!s3.putObjectFromMemory(s3BucketName,localAppID+"_result/results/"+uid, result)){
             generalUtils.logPrint("Error in putting url result to s3: " + url);
         }
