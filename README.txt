@@ -23,7 +23,7 @@ Third, in the command line terminal:
    4) last argument ("terminate") is optional - if present the program will terminate all running ec2 instances + all SQS queues
 
 EC2 configurations we used:
-1) Ami - ami-070ffc5b3faabe7cf (ubuntu 20.04  + aws cli v2 + jdk 8 + tesseract)
+1) Ami - ami-070ea666bea340924 (ubuntu 20.04  + aws cli v2 + jdk 8 + tesseract + worker and manager jars)
 2) Instance type - "T2_MICRO"
 3) Region - "US_EAST_1"
 
@@ -33,13 +33,13 @@ Running times:
 
 2) Short input file - 3:44
    Input file - inputs/short_input.txt
-   Ami - ami-070ffc5b3faabe7cf
+   Ami - ami-070ea666bea340924
    Instance type - T2_MICRO
    N parameter - 4
 
-2) Long input file - 21:14
+2) Long input file - 12:19
    Input file - inputs/long_input.txt
-   Ami - ami-070ffc5b3faabe7cf
+   Ami - ami-070ea666bea340924
    Instance type - T2_MICRO
    N parameter - 375
 
