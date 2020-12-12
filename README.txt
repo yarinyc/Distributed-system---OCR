@@ -30,18 +30,19 @@ EC2 configurations we used:
 
 Running times:
 *Note: In effect there were always at most 9 instances running, due to limitations of the aws student account
+*In both runs we had 6 workers up
 
-2) Short input file - 3:44
+1) Short input file - 3:44
    Input file - inputs/short_input.txt
    Ami - ami-070ea666bea340924
    Instance type - T2_MICRO
    N parameter - 4
 
-2) Long input file - 12:19
+2) Long input file - 8:49
    Input file - inputs/long_input.txt
    Ami - ami-070ea666bea340924
    Instance type - T2_MICRO
-   N parameter - 375
+   N parameter - 167
 
 
 Our implementation:
@@ -56,7 +57,7 @@ The project consists of 3 key classes: LocalApplication, Manager and Worker:
    1) Check whether there is a manager node already running. If not, it will initialize a manger ec2 node to start running.
    2) Send a task message to the manager (sent using the shared localToManagerSQS queue)
    3) Wait for a response from the manager (polling it's own unique ManagerToLocalSQS queue)
-   3) Upon response if all went well, download results file from the S3 bucket
+   3) Upon response if all went well, download results from the S3 bucket
    4) Create HTML final output file and save it to outputs folder
    5) If "terminate" was passed as a command line argument, the localApp will send a termination message to the manager to shut down all ec2 services
 
@@ -104,7 +105,7 @@ Mandatory Requirements:
      bucket, relieving the manager main thread to attend to some other work.
      We made sure to start up new worker nodes when needed, in order to handle more url tasks.
      In reality, in order to make the system more robust and scale up to millions of users, we would suggest using multiple
-     manager nodes, using a database instead of handling results/data structures in memory (for example hashmaps in the manager), and perhaps introduce new worker nodes whose
+     manager nodes, using a database instead of data structures (like some hashmaps), and perhaps introduce new worker nodes whose
      mission would be to create the final summary file, instead of the manager as it is in our implementation.
 
   2) Security:
@@ -135,7 +136,7 @@ Mandatory Requirements:
       In addition, if there is a need to send summary files to some local apps we do so before shutting down the manager
       node. We also made sure any temporary files saved locally or on the S3 bucket by the manager\worker\local apps to be
       deleted. We also delete all SQS queues, and supply an option to delete the S3 bucket as well if wanted (decided by
-      us in the manager source code, default is to delete).
+      us, default is to delete).
 
 
 

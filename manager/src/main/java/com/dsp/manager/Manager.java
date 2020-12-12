@@ -243,7 +243,10 @@ public class Manager {
         }
     }
 
-    //Create summary file of all url subtasks results in json format and send to the local application
+    //Create summary file and send to the local application
+    //The summary file consists 2 hashmaps translated to json format:
+    //A counter hashmap that holds a counter for every url subtask (for taking care of duplicates)
+    //A hashmap that translates uniqueId values to urls. We will use this hashmap upon creating the html file
     private static void createSendSummaryFile(String localAppID) {
         FileWriter fStream;
         try {
@@ -254,10 +257,10 @@ public class Manager {
             return;
         }
         BufferedWriter out = new BufferedWriter(fStream);
-
+        //convert the two hashmaps to json format
         String counterJson = JacksonUtils.toJsonString(urlCounters.get(localAppID));
         String uidJson = JacksonUtils.toJsonString(uniqueIDToUrlMap.get(localAppID));
-
+        //write them to the file
         try {
             out.write(counterJson+"\n"+uidJson);
             out.flush();
@@ -266,23 +269,24 @@ public class Manager {
             GeneralUtils.printStackTrace(e,generalUtils);
             generalUtils.logPrint("Error in createSendSummaryFile: out.write(jsonResult)" );
         }
-
+        //save file to the s3 bucket
         String responseKey = localAppID + "_result";
         if(!s3.putObject(s3BucketName, responseKey, localAppID+"_result.txt")){
             generalUtils.logPrint("Error in createSendSummaryFile: s3.putObject");
         }
+        //send message to the relevant local app
         String queueUrl = managerToLocalQueues.get(localAppID);
         HashMap<String, MessageAttributeValue> attributesMap = new HashMap<>();
         attributesMap.put("From", MessageAttributeValue.builder().dataType("String").stringValue("Manager").build());
         attributesMap.put("To", MessageAttributeValue.builder().dataType("String").stringValue("LocalApp").build());
         if(!sqs.sendMessage(queueUrl, responseKey, attributesMap)){
             generalUtils.logPrint("Error in createSendSummaryFile: sqs.sendMessage");
-            System.exit(1); // Fatal Error
+            System.exit(1); //Fatal Error
         }
-        urlCounters.remove(localAppID); // delete url counters map
-        managerToLocalQueues.remove(localAppID); // delete queue url from map
-        uniqueIDToUrlMap.remove(localAppID);
-
+        urlCounters.remove(localAppID); //delete url counters map
+        managerToLocalQueues.remove(localAppID); //delete queue url from map
+        uniqueIDToUrlMap.remove(localAppID); //delete uniqueIdToUrl map
+        //delete temporary file from memory
         if(!new File(localAppID+"_result.txt").delete()){
             generalUtils.logPrint("Error in createSendSummaryFile: summary file deletion");
         }
