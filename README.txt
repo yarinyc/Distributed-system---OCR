@@ -1,4 +1,8 @@
-Omer David - 307852608, Yarin Cohen - 204482558
+*Overview:*
+	Using AWS EC2 instances, SQS queues, and S3 buckets for storage,
+	Created a manager-worker distributed system for getting requests form multiple clients.
+	A client can send the manager a list of image urls and get back all the text contained in those images.
+
 
 How to run the project:
 First, using the aws console:
