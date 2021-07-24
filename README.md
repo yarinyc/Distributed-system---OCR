@@ -1,6 +1,6 @@
 *Overview:*
 	Using AWS EC2 instances, SQS queues, and S3 buckets for storage,
-	Created a manager-worker distributed system for getting requests form multiple clients.
+	Created a manager-worker distributed system for getting requests from multiple clients.
 	A client can send the manager a list of image urls and get back all the text contained in those images.
 
 
